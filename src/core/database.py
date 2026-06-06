@@ -47,10 +47,19 @@ class DatabaseManager:
     def _ensure_indexes(self):
         try:
             self.questions_col.create_index("id", unique=True)
+            self.questions_col.create_index("category")
             self.users_col.create_index("user_id", unique=True)
+            self.users_col.create_index([("last_seen", DESCENDING)])
+            self.users_col.create_index([("total_answers", DESCENDING)])
             self.groups_col.create_index("chat_id", unique=True)
+            self.groups_col.create_index([("last_active", DESCENDING)])
             self.poll_map_col.create_index("poll_id", unique=True)
+            # Compound indexes for time-based activity queries (critical for leaderboards)
+            self.activities_col.create_index([("type", ASCENDING), ("timestamp", DESCENDING)])
+            self.activities_col.create_index([("type", ASCENDING), ("is_correct", ASCENDING), ("timestamp", DESCENDING)])
+            self.activities_col.create_index([("type", ASCENDING), ("user_id", ASCENDING), ("timestamp", DESCENDING)])
             self.activities_col.create_index([("timestamp", DESCENDING)])
+            self.performance_col.create_index([("metric", ASCENDING), ("timestamp", DESCENDING)])
             self.performance_col.create_index([("timestamp", DESCENDING)])
             self.broadcasts_col.create_index([("created_at", DESCENDING)])
         except Exception as e:
@@ -507,3 +516,44 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"add_developer error: {e}")
             return False
+
+    def get_user(self, user_id: int) -> Optional[Dict]:
+        """Get a single user document by user_id."""
+        try:
+            return self.users_col.find_one({"user_id": user_id}, {"_id": 0})
+        except Exception as e:
+            logger.error(f"get_user error: {e}")
+            return None
+
+    def get_leaderboard_by_period(self, days: int, limit: int = 10) -> List[Dict]:
+        """Return leaderboard of top users by correct answers in last N days."""
+        try:
+            cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+            correct_agg = list(self.activities_col.aggregate([
+                {"$match": {"type": "quiz_answer", "is_correct": True,
+                            "timestamp": {"$gte": cutoff}}},
+                {"$group": {"_id": "$user_id", "correct": {"$sum": 1}}}
+            ]))
+            total_agg = list(self.activities_col.aggregate([
+                {"$match": {"type": "quiz_answer", "timestamp": {"$gte": cutoff}}},
+                {"$group": {"_id": "$user_id", "total": {"$sum": 1}}}
+            ]))
+            correct_map = {r["_id"]: r["correct"] for r in correct_agg}
+            total_map   = {r["_id"]: r["total"]   for r in total_agg}
+            all_uids    = set(correct_map.keys()) | set(total_map.keys())
+            entries = []
+            for uid in all_uids:
+                c = correct_map.get(uid, 0)
+                t = total_map.get(uid, 0)
+                acc = round(c / t * 100, 1) if t > 0 else 0
+                entries.append({
+                    "user_id":         uid,
+                    "correct_answers": c,
+                    "total_attempts":  t,
+                    "accuracy":        acc,
+                })
+            entries.sort(key=lambda x: x["correct_answers"], reverse=True)
+            return entries[:limit]
+        except Exception as e:
+            logger.error(f"get_leaderboard_by_period error: {e}")
+            return []

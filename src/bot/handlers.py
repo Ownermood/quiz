@@ -1,9 +1,6 @@
 """
-╔══════════════════════════════════════════════════════════╗
-║          CLAT VISION QUIZ BOT — HANDLER ENGINE          ║
-║     Professional • Mafiya-Style • Inline Mentions       ║
-║     Smart DelQuiz • Bot Stats • Premium Formatting      ║
-╚══════════════════════════════════════════════════════════╝
+CLAT VISION QUIZ BOT — PREMIUM HANDLER ENGINE
+Ultra-premium redesign: modern, elegant, professional.
 """
 
 import logging
@@ -26,24 +23,23 @@ from telegram.constants import ParseMode
 from telegram.error import TelegramError, Forbidden, BadRequest
 
 logger   = logging.getLogger(__name__)
-OWNER_ID = int(os.environ.get("OWNER_ID", "8403136097"))
+OWNER_ID   = int(os.environ.get("OWNER_ID", "8403136097"))
+OWNER_NAME = "🌷 𝐂𝐋𝐀𝐓 𝐎𝐖𝐍𝐄𝐑 🌷"
+COMMUNITY  = "@CLAT_Vision"
 
-# ╔══════════════════════════════════════════════════════════╗
-# ║                    DESIGN SYSTEM                        ║
-# ╚══════════════════════════════════════════════════════════╝
+
+# ══════════════════════════════════════════════════════════════
+#  PREMIUM DESIGN SYSTEM
+# ══════════════════════════════════════════════════════════════
 
 class UI:
-    """
-    Central design token system.
-    All visual constants & helpers live here — never inline.
-    """
+    """Central design token system — all visual constants live here."""
 
-    # ── Separators ────────────────────────────────────────
-    LINE    = "━" * 30
-    DOTLINE = "┄" * 30
-    THIN    = "─" * 28
+    LINE  = "━" * 30
+    THIN  = "─" * 26
+    DOT   = "·"
 
-    # ── Progress bar ─────────────────────────────────────
+    # ── Progress bar ──────────────────────────────────────────
     @staticmethod
     def bar(pct: float, width: int = 10) -> str:
         filled = max(0, min(width, int(float(pct) / 100 * width)))
@@ -54,31 +50,59 @@ class UI:
         filled = max(0, min(width, int(float(pct) / 100 * width)))
         return "▰" * filled + "▱" * (width - filled)
 
-    # ── Rank badges ───────────────────────────────────────
+    # ── Rank tier system (based on correct answers) ───────────
     @staticmethod
     def rank(score: int) -> tuple:
-        if   score >= 500: return "👑 LEGEND",    "S"
-        elif score >= 200: return "🔱 MASTER",    "A+"
-        elif score >= 100: return "⚔️  EXPERT",   "A"
-        elif score >= 50:  return "🎯 ADVANCED",  "B"
-        elif score >= 20:  return "📈 RISING",    "C"
-        elif score >= 5:   return "🌱 BEGINNER",  "D"
-        else:              return "🎲 ROOKIE",    "E"
+        """Returns (rank_label, grade_letter)."""
+        if   score >= 500: return "👑 LEGEND",   "S"
+        elif score >= 200: return "🔱 MASTER",   "A+"
+        elif score >= 100: return "⚔️  EXPERT",  "A"
+        elif score >= 50:  return "🎯 ADVANCED", "B"
+        elif score >= 20:  return "📈 RISING",   "C"
+        elif score >= 5:   return "🌱 BEGINNER", "D"
+        else:              return "🎲 ROOKIE",   "E"
 
-    # ── Medals ────────────────────────────────────────────
+    # ── XP Level system (score × 10 = XP) ────────────────────
+    @staticmethod
+    def level(score: int) -> str:
+        xp = score * 10
+        if   xp >= 10000: return "💠 Legendary"
+        elif xp >= 5000:  return "💎 Diamond"
+        elif xp >= 2500:  return "🔷 Platinum"
+        elif xp >= 1000:  return "🥇 Gold"
+        elif xp >= 500:   return "🥈 Silver"
+        else:             return "🥉 Bronze"
+
+    @staticmethod
+    def xp_bar(score: int) -> str:
+        """Show progress within current level."""
+        breakpoints = [0, 50, 100, 250, 500, 1000]
+        for i, bp in enumerate(breakpoints):
+            if score < bp:
+                prev = breakpoints[i - 1] if i > 0 else 0
+                pct  = (score - prev) / (bp - prev) * 100 if bp > prev else 100
+                return UI.mini_bar(pct)
+        return "▰▰▰▰▰"
+
+    # ── Medal & ranking display ───────────────────────────────
     MEDALS = ["🥇", "🥈", "🥉"] + ["🏅"] * 20
 
-    # ── Category system ───────────────────────────────────
+    @staticmethod
+    def rank_badge(pos: int) -> str:
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        return medals.get(pos, f"  {pos}.")
+
+    # ── Category system ───────────────────────────────────────
     CATS = {
-        "legal":    ("⚖️",  "crimson"),
-        "english":  ("📖",  "gold"),
-        "gk":       ("🌐",  "teal"),
-        "current":  ("📰",  "orange"),
-        "polity":   ("🏛️",  "purple"),
-        "math":     ("🔢",  "blue"),
-        "reasoning":("🧠",  "green"),
-        "history":  ("📜",  "brown"),
-        "default":  ("📚",  "grey"),
+        "legal":     ("⚖️",  "Legal Reasoning"),
+        "english":   ("📖",  "English"),
+        "gk":        ("🌐",  "General Knowledge"),
+        "current":   ("📰",  "Current Affairs"),
+        "polity":    ("🏛️",  "Polity"),
+        "math":      ("🔢",  "Mathematics"),
+        "reasoning": ("🧠",  "Logical Reasoning"),
+        "history":   ("📜",  "History"),
+        "default":   ("📚",  "General"),
     }
 
     @staticmethod
@@ -89,44 +113,32 @@ class UI:
                 return emoji
         return UI.CATS["default"][0]
 
-    # ── Section headers (Telegram-safe box drawing) ───────
-    @staticmethod
-    def box(emoji: str, title: str, width: int = 32) -> str:
-        return f"<b>{'━'*width}</b>\n<b>{emoji}  {title}</b>\n<b>{'━'*width}</b>"
-
-    @staticmethod
-    def section(emoji: str, title: str) -> str:
-        return f"\n<b>┌{'─'*2} {emoji} {title}</b>"
-
-    @staticmethod
-    def row(label: str, value: str, emoji: str = "▸") -> str:
-        return f"│  {emoji} {label}: <b>{value}</b>"
-
-    @staticmethod
-    def end() -> str:
-        return "└" + "─" * 20
-
-    # ── Inline mention ────────────────────────────────────
+    # ── Inline mention ────────────────────────────────────────
     @staticmethod
     def mention(user_id: int, name: str) -> str:
-        """Create a clickable inline user mention."""
         safe = name.replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;")
         return f'<a href="tg://user?id={user_id}">{safe}</a>'
 
-    # ── Fire streak ───────────────────────────────────────
+    # ── Streak display ────────────────────────────────────────
     @staticmethod
     def streak_display(n: int) -> str:
-        if n == 0: return "—"
+        if n == 0:
+            return "— No streak yet"
         fires = "🔥" * min(n, 5)
-        return f"{fires} <b>{n}</b>"
+        suffix = " 🔥" if n > 5 else ""
+        return f"{fires}{suffix} <b>{n} days</b>"
 
-    # ── Loading dots ──────────────────────────────────────
-    SPINNERS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    # ── Number formatter ──────────────────────────────────────
+    @staticmethod
+    def fmt_num(n: int) -> str:
+        if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
+        if n >= 1_000:     return f"{n/1_000:.1f}K"
+        return str(n)
 
 
-# ╔══════════════════════════════════════════════════════════╗
-# ║                  FORUM / TOPIC HELPERS                  ║
-# ╚══════════════════════════════════════════════════════════╝
+# ══════════════════════════════════════════════════════════════
+#  FORUM / TOPIC HELPERS
+# ══════════════════════════════════════════════════════════════
 
 def get_thread_id(update: Update) -> Optional[int]:
     msg = update.effective_message
@@ -138,9 +150,9 @@ def get_tracking_id(chat_id: int, thread_id: Optional[int]) -> int:
     return int(f"{abs(chat_id)}{thread_id}") if thread_id else chat_id
 
 
-# ╔══════════════════════════════════════════════════════════╗
-# ║                    MAIN BOT CLASS                       ║
-# ╚══════════════════════════════════════════════════════════╝
+# ══════════════════════════════════════════════════════════════
+#  MAIN BOT CLASS
+# ══════════════════════════════════════════════════════════════
 
 class TelegramQuizBot:
 
@@ -149,12 +161,9 @@ class TelegramQuizBot:
         self.db                       = db_manager
         self.application: Optional[Application] = None
         self._dev                     = None
-        # In-memory delete selection state {user_id: page}
         self._del_page: dict          = {}
 
-    # ════════════════════════════════════════════════════════
-    #  INITIALIZATION
-    # ════════════════════════════════════════════════════════
+    # ─── Initialization ──────────────────────────────────────
 
     async def initialize(self, token: str):
         self.application = Application.builder().token(token).build()
@@ -174,7 +183,7 @@ class TelegramQuizBot:
     def _register_handlers(self):
         app = self.application
 
-        # ── User commands ─────────────────────────────────
+        # User commands
         app.add_handler(CommandHandler("start",       self.cmd_start))
         app.add_handler(CommandHandler("help",        self.cmd_help))
         app.add_handler(CommandHandler("quiz",        self.cmd_quiz))
@@ -187,7 +196,7 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("ping",        self.cmd_ping))
         app.add_handler(CommandHandler("info",        self.cmd_info))
 
-        # ── Admin commands ────────────────────────────────
+        # Admin commands
         app.add_handler(CommandHandler("addquiz",     self.cmd_addquiz))
         app.add_handler(CommandHandler("importquiz",  self.cmd_importquiz))
         app.add_handler(CommandHandler("delquiz",     self.cmd_delquiz))
@@ -198,17 +207,18 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("reload",      self.cmd_reload))
         app.add_handler(CommandHandler("restart",     self.cmd_restart))
 
-        # ── Poll + Callbacks ──────────────────────────────
+        # Poll + Callbacks
         app.add_handler(PollAnswerHandler(self.handle_poll_answer))
         app.add_handler(CallbackQueryHandler(
             self._cb_delquiz, pattern=r"^dq_"))
         app.add_handler(CallbackQueryHandler(self.handle_callback))
-        # ── Bulk import: .txt file upload ─────────────────
+
+        # Bulk import: .txt file
         app.add_handler(MessageHandler(
             filters.Document.TXT | filters.Document.TEXT,
             self.handle_document))
 
-        # ── Dev module (optional) ─────────────────────────
+        # Dev module
         try:
             from src.bot.dev_commands import DeveloperCommands
             if self.db:
@@ -230,18 +240,16 @@ class TelegramQuizBot:
                 BotCommand("quiz",        "🎯 Get a quiz question"),
                 BotCommand("score",       "🏆 Your personal score"),
                 BotCommand("stats",       "📈 Your detailed stats"),
-                BotCommand("botstats",    "📊 Bot-wide quiz statistics"),
+                BotCommand("botstats",    "📊 Bot-wide statistics"),
                 BotCommand("leaderboard", "🔱 Global leaderboard"),
-                BotCommand("help",        "📖 All commands"),
+                BotCommand("help",        "📖 Command center"),
                 BotCommand("start",       "🚀 Welcome screen"),
-                BotCommand("ping",        "🏓 Bot latency"),
+                BotCommand("ping",        "🏓 Connection test"),
             ])
         except Exception as e:
             logger.warning(f"set_my_commands: {e}")
 
-    # ════════════════════════════════════════════════════════
-    #  CORE HELPERS
-    # ════════════════════════════════════════════════════════
+    # ─── Core helpers ─────────────────────────────────────────
 
     def _is_owner(self, uid: int) -> bool:
         return uid == OWNER_ID
@@ -291,113 +299,104 @@ class TelegramQuizBot:
             logger.error(f"_edit error: {e}")
 
     async def _unauthorized(self, update: Update):
-        user = update.effective_user
+        """Professional access denied — auto-deletes after 7s."""
+        user    = update.effective_user
         mention = UI.mention(user.id, user.first_name or "User")
         text = (
-            f"🔐 <b>ACCESS DENIED</b>\n"
+            f"🔒 <b>ACCESS RESTRICTED</b>\n"
             f"{UI.LINE}\n\n"
-            f"Sorry {mention}, this command requires\n"
-            f"<b>Owner</b> or <b>Developer</b> access.\n\n"
-            f"<i>Contact @CLAT_Vision for access.</i>"
+            f"  {mention}, this command requires\n"
+            f"  elevated privileges.\n\n"
+            f"  ◈ Owner or Developer access only.\n\n"
+            f"{UI.THIN}\n"
+            f"  <i>Contact {COMMUNITY} for access.</i>"
         )
         msg = await self._reply(update, text)
         await asyncio.sleep(7)
         try:
-            if msg: await msg.delete()
+            if msg:
+                await msg.delete()
             await update.effective_message.delete()
         except Exception:
             pass
 
-    # ════════════════════════════════════════════════════════
-    #  /start
-    # ════════════════════════════════════════════════════════
+    def _get_user_rank_position(self, user_id: int) -> Optional[int]:
+        """Return global rank position (1-indexed) or None."""
+        try:
+            lb = self.quiz_manager.get_leaderboard(limit=200)
+            for i, entry in enumerate(lb):
+                if entry.get("user_id") == user_id:
+                    return i + 1
+        except Exception:
+            pass
+        return None
+
+    # ─── /start ──────────────────────────────────────────────
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
         name    = user.first_name or "Student"
         mention = UI.mention(user.id, name)
-        q_count = len(self.quiz_manager.questions)
         is_pm   = update.effective_chat.type == "private"
 
+        # Brief loading indicator (PM only, no childish animations)
         if is_pm:
-            boot_frames = [
-                "⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛\n⚡ <b>CLAT VISION</b> — <i>Booting...</i>",
-                "🟥⬛⬛⬛⬛⬛⬛⬛⬛⬛\n🔍 <i>Scanning your profile...</i>",
-                "🟥🟥⬛⬛⬛⬛⬛⬛⬛⬛\n📡 <i>Connecting to servers...</i>",
-                "🟥🟥🟥⬛⬛⬛⬛⬛⬛⬛\n📚 <i>Loading question bank...</i>",
-                "🟧🟧🟧🟧⬛⬛⬛⬛⬛⬛\n🏆 <i>Fetching leaderboard...</i>",
-                "🟧🟧🟧🟧🟧⬛⬛⬛⬛⬛\n📊 <i>Loading your stats...</i>",
-                "🟨🟨🟨🟨🟨🟨⬛⬛⬛⬛\n🔥 <i>Calculating streak...</i>",
-                "🟨🟨🟨🟨🟨🟨🟨⬛⬛⬛\n💎 <i>Checking your level...</i>",
-                "🟩🟩🟩🟩🟩🟩🟩🟩⬛⬛\n✨ <i>Personalising dashboard...</i>",
-                "🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩\n✅ <b>System Ready! Welcome!</b>",
-            ]
-            msg = await self._reply(update, boot_frames[0])
-            for frame in boot_frames[1:]:
-                await asyncio.sleep(0.35)
-                await self._edit(msg, frame)
-            await asyncio.sleep(0.4)
+            msg = await self._reply(update, "⚡ <i>Loading your profile...</i>")
+            await asyncio.sleep(0.5)
+        else:
+            msg = None
 
-        streak = 0
-        total_score = 0
-        rank = "Unranked"
-        level = "🥉 Beginner"
-        if self.db:
-            try:
-                u = self.db.get_user(user.id)
-                if u:
-                    streak = u.get("streak", 0)
-                    total_score = u.get("total_score", 0)
-                    if total_score >= 1000:
-                        level = "💎 Elite"
-                    elif total_score >= 500:
-                        level = "🥇 Advanced"
-                    elif total_score >= 100:
-                        level = "🥈 Intermediate"
-            except Exception:
-                pass
+        # Fetch stats
+        score  = self.quiz_manager.get_score(user.id)
+        stats  = self.quiz_manager.get_user_stats(user.id)
+        q_count = len(self.quiz_manager.questions)
 
-        streak_bar = ("🔥" * min(streak, 7)) if streak > 0 else "❄️ Start today!"
+        streak   = stats.get("current_streak", 0)
+        rate     = stats.get("success_rate", 0)
+        total_q  = stats.get("total_quizzes", 0)
+
+        rank_txt, grade = UI.rank(score)
+        level_txt       = UI.level(score)
+        rank_pos        = self._get_user_rank_position(user.id)
+        acc_bar         = UI.bar(rate, width=10)
+        streak_text     = UI.streak_display(streak)
+
+        rank_line = f"#{rank_pos} Global" if rank_pos else "Unranked"
 
         text = (
-            f"╔═══════════════════════════╗\n"
-            f"║  🎓 <b>CLAT VISION QUIZ BOT</b>  ║\n"
-            f"╚═══════════════════════════╝\n\n"
-            f"⚡ <b>Hey {mention}!</b> 👋\n"
-            f"<i>Your CLAT 2027 grind never stops! 💪</i>\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📊 <b>LIVE DASHBOARD</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  🎯  Questions  ›  <b>{q_count} ready</b>\n"
-            f"  🏆  Rank       ›  <b>{rank}</b>\n"
-            f"  ⭐  Score      ›  <b>{total_score} pts</b>\n"
-            f"  🎖️   Level      ›  <b>{level}</b>\n"
-            f"  🔥  Streak     ›  <b>{streak} days</b>\n"
-            f"  {streak_bar}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🚀 <b>ARSENAL</b>\n"
-            f"  ⚡ Timed Quizzes  •  🗂️ Categories\n"
-            f"  📊 Deep Analytics  •  🏆 Rankings\n"
-            f"  🔔 Daily Reminders  •  📖 Guides\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 <i>Tip: Daily 20 mins = CLAT cracked!</i>\n"
-            f"<i>⚡ @CLAT_Vision  •  CLAT 2027</i>"
+            f"🎓 <b>CLAT VISION · QUIZ ACADEMY</b>\n"
+            f"{UI.LINE}\n\n"
+            f"  Welcome back, {mention}! 👋\n\n"
+            f"<b>YOUR PROFILE</b>\n"
+            f"{UI.THIN}\n"
+            f"  Rank     ›  {rank_txt} <i>({grade})</i>\n"
+            f"  Position ›  <b>{rank_line}</b>\n"
+            f"  Level    ›  <b>{level_txt}</b>\n"
+            f"  Score    ›  <b>{score}</b> correct answers\n"
+            f"  Streak   ›  {streak_text}\n"
+            f"  Accuracy ›  <b>{rate}%</b>  [{acc_bar}]\n"
+            f"  Played   ›  <b>{total_q}</b> questions\n\n"
+            f"<b>QUESTION BANK</b>\n"
+            f"{UI.THIN}\n"
+            f"  📚 <b>{UI.fmt_num(q_count)}</b> questions ready to practice\n\n"
+            f"{UI.LINE}\n"
+            f"  ⚡ {COMMUNITY}  ·  CLAT 2027"
         )
 
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⚡ Play Quiz",      callback_data="play_quiz"),
-             InlineKeyboardButton("📊 My Stats",       callback_data="my_stats")],
-            [InlineKeyboardButton("🏆 Leaderboard",    callback_data="leaderboard"),
-             InlineKeyboardButton("📖 Help",            callback_data="help")],
-            [InlineKeyboardButton("🌐 CLAT Vision Channel", url="https://t.me/CLAT_Vision")],
+            [InlineKeyboardButton("⚡ Start Quiz",    callback_data="play_quiz"),
+             InlineKeyboardButton("📊 My Stats",      callback_data="my_stats")],
+            [InlineKeyboardButton("🏆 Leaderboard",   callback_data="leaderboard"),
+             InlineKeyboardButton("📖 Commands",       callback_data="help")],
+            [InlineKeyboardButton("🌐 Join CLAT Vision", url="https://t.me/CLAT_Vision")],
         ])
 
-        if is_pm and "msg" in locals() and msg:
+        if msg:
             await self._edit(msg, text, kb)
         else:
             await self._reply(update, text, reply_markup=kb)
-            await self._reply(update, text, reply_markup=kb)
 
+        # Register user in DB
         if self.db:
             try:
                 self.db.upsert_user(user.id, {
@@ -410,116 +409,86 @@ class TelegramQuizBot:
             except Exception as e:
                 logger.error(f"upsert_user: {e}")
 
-    # ════════════════════════════════════════════════════════
-    #  /help
-    # ════════════════════════════════════════════════════════
+    # ─── /help ───────────────────────────────────────────────
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_pm = update.effective_chat.type == "private"
-        if is_pm:
-            frames = [
-                "📖⬛⬛⬛⬛⬛⬛⬛⬛⬛\n<i>Opening command guide...</i>",
-                "📖🟦⬛⬛⬛⬛⬛⬛⬛⬛\n<i>Loading quiz commands...</i>",
-                "📖🟦🟦⬛⬛⬛⬛⬛⬛⬛\n<i>Loading stat commands...</i>",
-                "📖🟦🟦🟦⬛⬛⬛⬛⬛⬛\n<i>Loading admin panel...</i>",
-                "📖🟦🟦🟦🟦⬛⬛⬛⬛⬛\n<i>Loading analytics...</i>",
-                "📖🟦🟦🟦🟦🟦⬛⬛⬛⬛\n<i>Checking permissions...</i>",
-                "📖🟦🟦🟦🟦🟦🟦⬛⬛⬛\n<i>Almost ready...</i>",
-                "📖🟦🟦🟦🟦🟦🟦🟦🟦🟦\n✅ <b>Guide Ready!</b>",
-            ]
-            msg = await self._reply(update, frames[0])
-            for frame in frames[1:]:
-                await asyncio.sleep(0.3)
-                await self._edit(msg, frame)
-            await asyncio.sleep(0.3)
 
         text = (
-            f"╔═══════════════════════════╗\n"
-            f"║     📖 <b>CLAT VISION HELP</b>     ║\n"
-            f"╚═══════════════════════════╝\n\n"
+            f"📖 <b>COMMAND CENTER</b>\n"
+            f"{UI.LINE}\n\n"
 
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎯 <b>PLAY QUIZ</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  ⚡ /quiz — Random question\n"
-            f"  🗂️ /quiz [cat] — e.g. <code>/quiz legal</code>\n"
-            f"  🚀 /q — Quick shortcut\n\n"
+            f"<b>QUIZ</b>\n"
+            f"  ◈ /quiz — Random question\n"
+            f"  ◈ /quiz [topic] — By category\n"
+            f"     <code>legal · english · gk · polity</code>\n"
+            f"     <code>reasoning · history · current</code>\n"
+            f"  ◈ /q — Quick shortcut\n\n"
 
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📊 <b>YOUR STATS</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  🏅 /score — Score + rank + streak\n"
-            f"  📈 /stats — Full performance breakdown\n"
-            f"  🏆 /leaderboard — Top 10 players (/lb)\n\n"
+            f"<b>YOUR PROFILE</b>\n"
+            f"  ◈ /score — Scorecard + rank\n"
+            f"  ◈ /stats — Full performance analytics\n"
+            f"  ◈ /leaderboard — Global rankings\n\n"
 
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📡 <b>BOT ANALYTICS</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  📉 /botstats — Daily · weekly · monthly\n\n"
+            f"<b>BOT ANALYTICS</b>\n"
+            f"  ◈ /botstats — Daily · weekly · all-time\n\n"
 
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🛡️ <b>ADMIN PANEL</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  ➕ /addquiz — Add new question\n"
-            f"  🗑️ /delquiz — Smart delete\n"
-            f"  ✏️ /editquiz — Browse & manage\n"
-            f"  📢 /broadcast — Message all users\n"
-            f"  🔄 /reload — Sync from MongoDB\n"
-            f"  ♻️ /restart — Hot restart bot\n"
-            f"  📥 /importquiz — Bulk import questions\n"
-            f"  🧑‍💻 /dev — Developer control panel\n\n"
+            f"<b>SYSTEM</b>\n"
+            f"  ◈ /ping — Connection & latency\n"
+            f"  ◈ /info — Bot & chat information\n\n"
 
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"ℹ️ <b>INFO</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  🏓 /ping — Latency & status\n"
-            f"  🤖 /info — Bot & chat info\n\n"
+            f"{UI.THIN}\n"
+            f"<b>ADMIN</b>  <i>· Owner &amp; Developers only</i>\n"
+            f"  ◈ /addquiz — Add a question\n"
+            f"  ◈ /delquiz — Delete question\n"
+            f"  ◈ /editquiz — Manage questions\n"
+            f"  ◈ /importquiz — Bulk import (.txt)\n"
+            f"  ◈ /broadcast — Message all users\n"
+            f"  ◈ /reload — Sync from database\n"
+            f"  ◈ /restart — Restart bot\n"
+            f"  ◈ /dev — Developer control panel\n"
+            f"  ◈ /devstats — Analytics dashboard\n\n"
 
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"✅ <i>Forum & topic groups fully supported</i>\n"
-            f"<i>⚡ @CLAT_Vision  •  CLAT 2027</i>"
+            f"{UI.LINE}\n"
+            f"  ⚡ {COMMUNITY}  ·  CLAT 2027"
         )
+
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("⚡ Play Quiz",    callback_data="play_quiz"),
-            InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard"),
+            InlineKeyboardButton("⚡ Play Quiz",   callback_data="play_quiz"),
+            InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard"),
         ]])
-        if is_pm and "msg" in locals() and msg:
-            await self._edit(msg, text, kb)
-        else:
-            await self._reply(update, text, reply_markup=kb)
+        await self._reply(update, text, reply_markup=kb)
 
-
-    # ════════════════════════════════════════════════════════
-    #  /ping
-    # ════════════════════════════════════════════════════════
+    # ─── /ping ───────────────────────────────────────────────
 
     async def cmd_ping(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         t0  = time.time()
-        msg = await self._reply(update, "🏓 <i>Pinging...</i>")
+        msg = await self._reply(update, "🏓 <i>Measuring latency...</i>")
         ms  = int((time.time() - t0) * 1000)
         if not msg:
             return
 
         q_count = len(self.quiz_manager.questions)
         bar     = UI.bar(min(100, ms / 10))
-        speed   = "⚡ Blazing" if ms < 100 else "✅ Fast" if ms < 300 else "🟡 OK" if ms < 600 else "🔴 Slow"
+        if   ms < 100: status = "⚡ Blazing fast"
+        elif ms < 300: status = "✅ Fast"
+        elif ms < 600: status = "🟡 Normal"
+        else:          status = "🔴 Slow"
 
         text = (
-            f"🏓 <b>PONG!</b>\n"
+            f"🏓 <b>PONG</b>\n"
             f"{UI.LINE}\n\n"
-            f"  ⚡ Latency:  <code>{ms}ms</code>\n"
+            f"  Latency   ›  <code>{ms} ms</code>\n"
             f"  [{bar}]\n"
-            f"  Status:     <b>{speed}</b>\n\n"
-            f"  📦 Questions: <b>{q_count}</b>\n"
-            f"  🟢 Bot:       <b>Online</b>\n\n"
+            f"  Status    ›  <b>{status}</b>\n\n"
+            f"  Questions ›  <b>{q_count}</b> loaded\n"
+            f"  Bot       ›  🟢 Online\n\n"
             f"{UI.LINE}\n"
-            f"<i>CLAT Vision Quiz Bot</i>"
+            f"  <i>CLAT Vision Quiz Bot</i>"
         )
         await self._edit(msg, text)
 
-    # ════════════════════════════════════════════════════════
-    #  /info
-    # ════════════════════════════════════════════════════════
+    # ─── /info ───────────────────────────────────────────────
 
     async def cmd_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat      = update.effective_chat
@@ -530,27 +499,25 @@ class TelegramQuizBot:
         text = (
             f"ℹ️ <b>BOT INFORMATION</b>\n"
             f"{UI.LINE}\n\n"
-            f"<b>🤖 Bot</b>\n"
-            f"  Name:      CLAT Vision Quiz Bot\n"
-            f"  Questions: <b>{q_count}</b>\n"
-            f"  Mode:      Polling\n"
-            f"  DB:        MongoDB Atlas ✅\n\n"
-            f"<b>💬 This Chat</b>\n"
-            f"  ID:    <code>{chat.id}</code>\n"
-            f"  Type:  <code>{chat.type}</code>\n"
-            f"  Forum: <code>{is_forum}</code>\n"
+            f"<b>BOT</b>\n"
+            f"  Name      ›  CLAT Vision Quiz Bot\n"
+            f"  Questions ›  <b>{q_count}</b>\n"
+            f"  Database  ›  MongoDB Atlas ✅\n"
+            f"  Owner     ›  {OWNER_NAME}\n\n"
+            f"<b>THIS CHAT</b>\n"
+            f"  ID    ›  <code>{chat.id}</code>\n"
+            f"  Type  ›  <code>{chat.type}</code>\n"
+            f"  Forum ›  <code>{is_forum}</code>\n"
         )
         if thread_id:
-            text += f"  Topic: <code>{thread_id}</code>\n"
+            text += f"  Topic ›  <code>{thread_id}</code>\n"
         text += (
             f"\n{UI.LINE}\n"
-            f"<i>CLAT 2027 • @CLAT_Vision</i>"
+            f"  ⚡ {COMMUNITY}  ·  CLAT 2027"
         )
         await self._reply(update, text)
 
-    # ════════════════════════════════════════════════════════
-    #  /quiz
-    # ════════════════════════════════════════════════════════
+    # ─── /quiz ───────────────────────────────────────────────
 
     async def cmd_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat      = update.effective_chat
@@ -567,7 +534,7 @@ class TelegramQuizBot:
                 f"📭 <b>No Questions Found</b>\n"
                 f"{UI.LINE}\n\n"
                 + (f"  {cat_e} Category: <b>{category}</b>\n\n" if category else "")
-                + "  The question bank is empty!\n\n"
+                + "  The question bank is empty.\n\n"
                 "  Use /addquiz to add questions."
             )
             await self._reply(update, text, reply_markup=InlineKeyboardMarkup([[
@@ -597,7 +564,7 @@ class TelegramQuizBot:
             open_period       = 30,
             explanation       = (
                 f"✅ {options[correct_idx]}\n"
-                f"📚 {cat} • 🆔 Q#{q_id}"
+                f"📚 {cat}  ·  🆔 Q#{q_id}"
             )
         )
         if thread_id:
@@ -641,9 +608,7 @@ class TelegramQuizBot:
             )
             await self._reply(update, text)
 
-    # ════════════════════════════════════════════════════════
-    #  POLL ANSWER HANDLER
-    # ════════════════════════════════════════════════════════
+    # ─── POLL ANSWER HANDLER ─────────────────────────────────
 
     async def handle_poll_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         answer     = update.poll_answer
@@ -684,9 +649,7 @@ class TelegramQuizBot:
             except Exception as e:
                 logger.error(f"DB poll_answer: {e}")
 
-    # ════════════════════════════════════════════════════════
-    #  /score
-    # ════════════════════════════════════════════════════════
+    # ─── /score ──────────────────────────────────────────────
 
     async def cmd_score(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
@@ -694,89 +657,111 @@ class TelegramQuizBot:
         score   = self.quiz_manager.get_score(user.id)
         stats   = self.quiz_manager.get_user_stats(user.id)
 
-        total  = stats.get("total_quizzes", 0)
-        rate   = stats.get("success_rate", 0)
-        streak = stats.get("current_streak", 0)
-        best   = stats.get("longest_streak", 0)
-        today  = stats.get("today_quizzes", 0)
+        total   = stats.get("total_quizzes", 0)
+        rate    = stats.get("success_rate", 0)
+        streak  = stats.get("current_streak", 0)
+        best    = stats.get("longest_streak", 0)
+        today   = stats.get("today_quizzes", 0)
+        wrong   = total - score
 
-        bar          = UI.bar(rate)
-        rank_txt, _  = UI.rank(score)
+        rank_txt, grade = UI.rank(score)
+        level_txt       = UI.level(score)
+        acc_bar         = UI.bar(rate)
+        rank_pos        = self._get_user_rank_position(user.id)
+        pos_text        = f"#{rank_pos}" if rank_pos else "—"
 
         text = (
-            f"🏆 <b>SCORE CARD</b>\n"
+            f"🏆 <b>SCORECARD</b>\n"
             f"{UI.LINE}\n\n"
-            f"  👤 {mention}\n"
-            f"  {rank_txt}\n\n"
-            f"<b>📊 Performance</b>\n"
-            f"  ✅ Correct:   <b>{score}</b>\n"
-            f"  📝 Attempted: <b>{total}</b>\n"
-            f"  ❌ Wrong:     <b>{total - score}</b>\n\n"
-            f"<b>🎯 Accuracy</b>\n"
-            f"  [{bar}] <b>{rate}%</b>\n\n"
-            f"<b>🔥 Streak</b>\n"
-            f"  Current: {UI.streak_display(streak)}\n"
-            f"  Best:    <b>{best}</b>\n"
-            f"  Today:   <b>{today}</b>\n\n"
+            f"  {mention}\n\n"
+            f"<b>RANK &amp; LEVEL</b>\n"
+            f"{UI.THIN}\n"
+            f"  Tier     ›  {rank_txt}\n"
+            f"  Grade    ›  <b>{grade}</b>\n"
+            f"  Level    ›  <b>{level_txt}</b>\n"
+            f"  Position ›  <b>{pos_text} Global</b>\n\n"
+            f"<b>PERFORMANCE</b>\n"
+            f"{UI.THIN}\n"
+            f"  Correct  ›  <b>{score}</b>\n"
+            f"  Wrong    ›  <b>{wrong}</b>\n"
+            f"  Total    ›  <b>{total}</b>\n"
+            f"  Accuracy ›  <b>{rate}%</b>  [{acc_bar}]\n\n"
+            f"<b>STREAK</b>\n"
+            f"{UI.THIN}\n"
+            f"  Current  ›  {UI.streak_display(streak)}\n"
+            f"  Best     ›  <b>{best} days</b>\n"
+            f"  Today    ›  <b>{today}</b> questions\n\n"
             f"{UI.LINE}\n"
-            f"<i>Keep grinding! 💪</i>"
+            f"  <i>Consistency wins CLAT. Keep going! 💪</i>"
         )
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎯 Play",       callback_data="play_quiz"),
+            [InlineKeyboardButton("⚡ Play Quiz",   callback_data="play_quiz"),
              InlineKeyboardButton("📈 Full Stats",  callback_data="my_stats")],
             [InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
         ])
         await self._reply(update, text, reply_markup=kb)
 
-    # ════════════════════════════════════════════════════════
-    #  /stats  (personal detailed)
-    # ════════════════════════════════════════════════════════
+    # ─── /stats ──────────────────────────────────────────────
 
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
         mention = UI.mention(user.id, user.first_name or "User")
 
-        msg = await self._reply(update, "📊 <i>Crunching your numbers...</i>")
+        msg = await self._reply(update, "📊 <i>Crunching your analytics...</i>")
         await asyncio.sleep(0.4)
 
-        stats  = self.quiz_manager.get_user_stats(user.id)
         score  = self.quiz_manager.get_score(user.id)
-        total  = stats.get("total_quizzes", 0)
-        rate   = stats.get("success_rate", 0)
-        streak = stats.get("current_streak", 0)
-        best   = stats.get("longest_streak", 0)
-        today  = stats.get("today_quizzes", 0)
-        week   = stats.get("week_quizzes", 0)
-        month  = stats.get("month_quizzes", 0)
+        stats  = self.quiz_manager.get_user_stats(user.id)
 
-        acc_bar  = UI.bar(rate)
-        w_bar    = UI.bar(min(100, week / 50 * 100))
+        total   = stats.get("total_quizzes", 0)
+        rate    = stats.get("success_rate", 0)
+        streak  = stats.get("current_streak", 0)
+        best    = stats.get("longest_streak", 0)
+        today   = stats.get("today_quizzes", 0)
+        week    = stats.get("week_quizzes", 0)
+        month   = stats.get("month_quizzes", 0)
+        wrong   = total - score
+
         rank_txt, grade = UI.rank(score)
+        level_txt       = UI.level(score)
+        acc_bar         = UI.bar(rate)
+        xp_bar          = UI.xp_bar(score)
+        rank_pos        = self._get_user_rank_position(user.id)
+        pos_text        = f"#{rank_pos}" if rank_pos else "Unranked"
+
+        # Weekly activity bar (vs target of 50/week)
+        w_pct  = min(100, week / 50 * 100)
+        w_bar  = UI.bar(w_pct)
 
         text = (
-            f"📈 <b>DETAILED STATS</b>\n"
+            f"📈 <b>PERFORMANCE ANALYTICS</b>\n"
             f"{UI.LINE}\n\n"
-            f"  👤 {mention}\n"
-            f"  {rank_txt}  •  Grade <b>{grade}</b>\n\n"
-
-            f"<b>🎯 Accuracy</b>\n"
-            f"  [{acc_bar}] <b>{rate}%</b>\n"
-            f"  ✅ <b>{score}</b> correct  ❌ <b>{total-score}</b> wrong  📝 <b>{total}</b> total\n\n"
-
-            f"<b>🔥 Streaks</b>\n"
-            f"  Current: {UI.streak_display(streak)}\n"
-            f"  Best:    <b>{best}</b>\n\n"
-
-            f"<b>📅 Activity</b>\n"
-            f"  Today:   <b>{today}</b> quizzes\n"
-            f"  Week:    <b>{week}</b>  [{w_bar}]\n"
-            f"  Month:   <b>{month}</b>\n\n"
-
+            f"  {mention}\n\n"
+            f"<b>RANK &amp; PROGRESSION</b>\n"
+            f"{UI.THIN}\n"
+            f"  Tier     ›  {rank_txt}  <i>({grade})</i>\n"
+            f"  Level    ›  <b>{level_txt}</b>\n"
+            f"  Progress ›  [{xp_bar}]\n"
+            f"  Position ›  <b>{pos_text} Global</b>\n\n"
+            f"<b>ACCURACY</b>\n"
+            f"{UI.THIN}\n"
+            f"  Rate    ›  <b>{rate}%</b>  [{acc_bar}]\n"
+            f"  Correct ›  <b>{score}</b>   Wrong ›  <b>{wrong}</b>\n"
+            f"  Total   ›  <b>{total}</b>\n\n"
+            f"<b>STREAKS</b>\n"
+            f"{UI.THIN}\n"
+            f"  Current ›  {UI.streak_display(streak)}\n"
+            f"  Best    ›  <b>{best} days</b>\n\n"
+            f"<b>ACTIVITY</b>\n"
+            f"{UI.THIN}\n"
+            f"  Today   ›  <b>{today}</b> questions\n"
+            f"  Week    ›  <b>{week}</b>  [{w_bar}]\n"
+            f"  Month   ›  <b>{month}</b>\n\n"
             f"{UI.LINE}\n"
-            f"<i>Consistency is the key to CLAT! 🚀</i>"
+            f"  <i>Aim for 20+ questions daily!</i>"
         )
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎯 Play Quiz",   callback_data="play_quiz"),
+            InlineKeyboardButton("⚡ Play Quiz",   callback_data="play_quiz"),
             InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard"),
         ]])
         if msg:
@@ -784,189 +769,225 @@ class TelegramQuizBot:
         else:
             await self._reply(update, text, reply_markup=kb)
 
-    # ════════════════════════════════════════════════════════
-    #  /botstats  (NEW — global quiz analytics)
-    # ════════════════════════════════════════════════════════
+    # ─── /botstats ───────────────────────────────────────────
 
     async def cmd_botstats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        msg = await self._reply(update, "📊 <i>Loading bot analytics...</i>")
+        msg = await self._reply(update, "📊 <i>Loading analytics...</i>")
         await asyncio.sleep(0.4)
 
         q_total  = len(self.quiz_manager.questions)
-        u_total  = 0
-        g_total  = 0
-        d_quizzes, w_quizzes, m_quizzes, a_quizzes = 0, 0, 0, 0
-        d_correct, w_correct, m_correct, a_correct = 0, 0, 0, 0
-        d_participants, w_participants = set(), set()
+        u_total  = g_total = 0
+        d_q = w_q = m_q = a_q = 0
+        d_c = w_c = m_c = a_c = 0
+        d_users: set = set()
+        w_users: set = set()
 
         if self.db:
             try:
                 from datetime import timedelta
-                now  = datetime.utcnow()
+                now   = datetime.utcnow()
                 d_cut = (now - timedelta(days=1)).isoformat()
                 w_cut = (now - timedelta(days=7)).isoformat()
                 m_cut = (now - timedelta(days=30)).isoformat()
+                acts  = self.db.activities_col
 
-                # Count quiz answers by period
-                acts = self.db.activities_col
-                d_quizzes = acts.count_documents({"type":"quiz_answer","timestamp":{"$gte":d_cut}})
-                w_quizzes = acts.count_documents({"type":"quiz_answer","timestamp":{"$gte":w_cut}})
-                m_quizzes = acts.count_documents({"type":"quiz_answer","timestamp":{"$gte":m_cut}})
-                a_quizzes = acts.count_documents({"type":"quiz_answer"})
+                d_q = acts.count_documents({"type": "quiz_answer", "timestamp": {"$gte": d_cut}})
+                w_q = acts.count_documents({"type": "quiz_answer", "timestamp": {"$gte": w_cut}})
+                m_q = acts.count_documents({"type": "quiz_answer", "timestamp": {"$gte": m_cut}})
+                a_q = acts.count_documents({"type": "quiz_answer"})
 
-                d_correct = acts.count_documents({"type":"quiz_answer","is_correct":True,"timestamp":{"$gte":d_cut}})
-                w_correct = acts.count_documents({"type":"quiz_answer","is_correct":True,"timestamp":{"$gte":w_cut}})
-                m_correct = acts.count_documents({"type":"quiz_answer","is_correct":True,"timestamp":{"$gte":m_cut}})
-                a_correct = acts.count_documents({"type":"quiz_answer","is_correct":True})
+                d_c = acts.count_documents({"type": "quiz_answer", "is_correct": True, "timestamp": {"$gte": d_cut}})
+                w_c = acts.count_documents({"type": "quiz_answer", "is_correct": True, "timestamp": {"$gte": w_cut}})
+                m_c = acts.count_documents({"type": "quiz_answer", "is_correct": True, "timestamp": {"$gte": m_cut}})
+                a_c = acts.count_documents({"type": "quiz_answer", "is_correct": True})
 
-                # Unique participants
-                d_participants = set(
-                    d["user_id"] for d in acts.find(
-                        {"type":"quiz_answer","timestamp":{"$gte":d_cut}},{"user_id":1}))
-                w_participants = set(
-                    d["user_id"] for d in acts.find(
-                        {"type":"quiz_answer","timestamp":{"$gte":w_cut}},{"user_id":1}))
+                d_users = set(d["user_id"] for d in acts.find(
+                    {"type": "quiz_answer", "timestamp": {"$gte": d_cut}}, {"user_id": 1}))
+                w_users = set(d["user_id"] for d in acts.find(
+                    {"type": "quiz_answer", "timestamp": {"$gte": w_cut}}, {"user_id": 1}))
 
                 u_total = self.db.users_col.count_documents({})
                 g_total = self.db.groups_col.count_documents({})
             except Exception as e:
                 logger.error(f"botstats DB error: {e}")
 
-        def acc(correct, total):
-            return f"{round(correct/total*100,1)}%" if total else "—"
-
-        d_bar = UI.bar(d_quizzes / max(w_quizzes, 1) * 100) if w_quizzes else UI.bar(0)
-        w_bar = UI.bar(w_quizzes / max(m_quizzes, 1) * 100) if m_quizzes else UI.bar(0)
+        def acc(c, t): return f"{round(c/t*100,1)}%" if t else "—"
 
         text = (
-            f"📊 <b>BOT STATISTICS</b>\n"
+            f"📊 <b>BOT ANALYTICS</b>\n"
             f"{UI.LINE}\n\n"
 
-            f"<b>🗄️ Database</b>\n"
-            f"  📦 Questions:  <b>{q_total}</b>\n"
-            f"  👥 Users:      <b>{u_total}</b>\n"
-            f"  💬 Groups:     <b>{g_total}</b>\n\n"
+            f"<b>DATABASE</b>\n"
+            f"{UI.THIN}\n"
+            f"  Questions  ›  <b>{UI.fmt_num(q_total)}</b>\n"
+            f"  Users      ›  <b>{UI.fmt_num(u_total)}</b>\n"
+            f"  Groups     ›  <b>{UI.fmt_num(g_total)}</b>\n\n"
 
-            f"<b>📅 Daily  <i>(last 24h)</i></b>\n"
-            f"  [{d_bar}]\n"
-            f"  🎯 Attempts:  <b>{d_quizzes}</b>  ✅ Correct: <b>{d_correct}</b>\n"
-            f"  🎯 Accuracy:  <b>{acc(d_correct, d_quizzes)}</b>\n"
-            f"  👤 Players:   <b>{len(d_participants)}</b>\n\n"
+            f"<b>LAST 24 HOURS</b>\n"
+            f"{UI.THIN}\n"
+            f"  Attempts   ›  <b>{d_q}</b>   Correct ›  <b>{d_c}</b>\n"
+            f"  Accuracy   ›  <b>{acc(d_c, d_q)}</b>\n"
+            f"  Players    ›  <b>{len(d_users)}</b>\n\n"
 
-            f"<b>📆 Weekly  <i>(last 7 days)</i></b>\n"
-            f"  [{w_bar}]\n"
-            f"  🎯 Attempts:  <b>{w_quizzes}</b>  ✅ Correct: <b>{w_correct}</b>\n"
-            f"  🎯 Accuracy:  <b>{acc(w_correct, w_quizzes)}</b>\n"
-            f"  👤 Players:   <b>{len(w_participants)}</b>\n\n"
+            f"<b>LAST 7 DAYS</b>\n"
+            f"{UI.THIN}\n"
+            f"  Attempts   ›  <b>{w_q}</b>   Correct ›  <b>{w_c}</b>\n"
+            f"  Accuracy   ›  <b>{acc(w_c, w_q)}</b>\n"
+            f"  Players    ›  <b>{len(w_users)}</b>\n\n"
 
-            f"<b>🗓️ Monthly  <i>(last 30 days)</i></b>\n"
-            f"  🎯 Attempts:  <b>{m_quizzes}</b>  ✅ Correct: <b>{m_correct}</b>\n"
-            f"  🎯 Accuracy:  <b>{acc(m_correct, m_quizzes)}</b>\n\n"
+            f"<b>LAST 30 DAYS</b>\n"
+            f"{UI.THIN}\n"
+            f"  Attempts   ›  <b>{m_q}</b>   Correct ›  <b>{m_c}</b>\n"
+            f"  Accuracy   ›  <b>{acc(m_c, m_q)}</b>\n\n"
 
-            f"<b>🏆 All-Time</b>\n"
-            f"  🎯 Attempts:  <b>{a_quizzes}</b>  ✅ Correct: <b>{a_correct}</b>\n"
-            f"  🎯 Accuracy:  <b>{acc(a_correct, a_quizzes)}</b>\n\n"
+            f"<b>ALL TIME</b>\n"
+            f"{UI.THIN}\n"
+            f"  Attempts   ›  <b>{UI.fmt_num(a_q)}</b>   Correct ›  <b>{UI.fmt_num(a_c)}</b>\n"
+            f"  Accuracy   ›  <b>{acc(a_c, a_q)}</b>\n\n"
 
             f"{UI.LINE}\n"
-            f"<i>CLAT Vision Quiz Bot Analytics</i>"
+            f"  <i>CLAT Vision Quiz Bot Analytics</i>"
         )
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
+            InlineKeyboardButton("⚡ Play Quiz", callback_data="play_quiz"),
         ]])
         if msg:
             await self._edit(msg, text, kb)
         else:
             await self._reply(update, text, reply_markup=kb)
 
-    # ════════════════════════════════════════════════════════
-    #  /leaderboard
-    # ════════════════════════════════════════════════════════
+    # ─── /leaderboard ────────────────────────────────────────
 
     async def cmd_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self._show_leaderboard(update, context, mode="global")
+
+    async def _show_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                mode: str = "global", edit_msg=None):
+        """
+        mode: 'global' | 'weekly' | 'monthly' | 'group'
+        edit_msg: message to edit (for callback updates)
+        """
         chat      = update.effective_chat
         thread_id = get_thread_id(update)
         is_group  = chat.type in ("group", "supergroup")
 
-        msg = await self._reply(update, "🏆 <i>Loading leaderboard...</i>")
-        await asyncio.sleep(0.4)
-
-        if is_group:
-            data         = self.quiz_manager.get_group_leaderboard(chat.id)
-            lb           = data.get("leaderboard", [])
-            total_q      = data.get("total_quizzes", 0)
-            acc_g        = data.get("group_accuracy", 0)
-            title_suffix = f" • {(chat.title or 'Group')[:14]}"
-            if thread_id: title_suffix += " 🧵"
+        # Show initial loading only when not editing
+        if edit_msg is None:
+            wait_msg = await self._reply(update, "🏆 <i>Loading rankings...</i>")
+            await asyncio.sleep(0.3)
         else:
-            lb           = self.quiz_manager.get_leaderboard()
-            total_q      = sum(e.get("total_attempts", 0) for e in lb)
-            acc_g        = 0
-            title_suffix = ""
+            wait_msg = None
+
+        # Determine leaderboard data source
+        if is_group and mode == "global":
+            mode = "group"
+
+        if mode == "group":
+            data    = self.quiz_manager.get_group_leaderboard(chat.id)
+            lb      = data.get("leaderboard", [])
+            total_q = data.get("total_quizzes", 0)
+            acc_g   = data.get("group_accuracy", 0)
+            title   = f"🏆 <b>GROUP LEADERBOARD</b>"
+            footer  = f"\n  Attempts: <b>{total_q}</b>  ·  Group accuracy: <b>{acc_g}%</b>"
+        elif mode == "weekly" and self.db:
+            lb      = self.db.get_leaderboard_by_period(days=7)
+            title   = "🏆 <b>WEEKLY LEADERBOARD</b>  <i>(last 7 days)</i>"
+            footer  = ""
+        elif mode == "monthly" and self.db:
+            lb      = self.db.get_leaderboard_by_period(days=30)
+            title   = "🏆 <b>MONTHLY LEADERBOARD</b>  <i>(last 30 days)</i>"
+            footer  = ""
+        else:
+            lb      = self.quiz_manager.get_leaderboard()
+            title   = "🏆 <b>GLOBAL LEADERBOARD</b>  <i>(all time)</i>"
+            footer  = ""
 
         if not lb:
             text = (
-                f"🏆 <b>LEADERBOARD{title_suffix}</b>\n"
+                f"🏆 <b>LEADERBOARD</b>\n"
                 f"{UI.LINE}\n\n"
                 "  No scores yet — be the first! 🥇\n\n"
                 "  Use /quiz to start playing."
             )
-            if msg: await self._edit(msg, text)
+            if edit_msg:
+                await self._edit(edit_msg, text)
+            elif wait_msg:
+                await self._edit(wait_msg, text)
             return
 
         top_score = lb[0].get("correct_answers", lb[0].get("score", 1)) or 1
-        lines = [
-            f"🏆 <b>LEADERBOARD{title_suffix}</b>\n"
-            f"{UI.LINE}\n"
-        ]
+        lines = [f"{title}\n{UI.LINE}\n"]
 
         for i, entry in enumerate(lb[:10]):
             uid   = entry.get("user_id")
             score = entry.get("correct_answers", entry.get("score", 0))
             acc   = entry.get("accuracy", 0)
-            medal = UI.MEDALS[i]
+            pos   = i + 1
 
-            # Inline mention from DB
+            # Resolve display name
             display = f"User {str(uid)[-4:]}"
-            if self.db:
+            if uid == OWNER_ID:
+                display = OWNER_NAME
+            elif self.db:
                 try:
                     doc = self.db.users_col.find_one(
                         {"user_id": uid}, {"name": 1, "username": 1})
                     if doc:
-                        display = (doc.get("name") or doc.get("username") or display)[:20]
+                        display = (doc.get("name") or doc.get("username") or display)[:22]
                 except Exception:
                     pass
-            mention = UI.mention(uid, display)
 
-            fill = max(0, min(5, int(score / top_score * 5)))
-            bar  = "▰" * fill + "▱" * (5 - fill)
+            mention  = UI.mention(uid, display)
+            fill     = max(0, min(10, int(score / top_score * 10)))
+            bar      = "█" * fill + "░" * (10 - fill)
 
-            lines.append(
-                f"{medal} {mention}\n"
-                f"   {bar} <b>{score}</b>  <i>{acc}% acc</i>"
-            )
+            if pos <= 3:
+                medal = UI.MEDALS[i]
+                lines.append(
+                    f"{medal}  {mention}\n"
+                    f"    [{bar}]  <b>{score} pts</b>  <i>{acc}% acc</i>"
+                )
+            else:
+                lines.append(
+                    f"  <b>{pos:2d}.</b>  {mention}  —  <b>{score}</b>  <i>{acc}%</i>"
+                )
 
-        if is_group and total_q > 0:
-            lines.append(
-                f"\n<b>📊 Group Totals</b>\n"
-                f"  Attempts: <b>{total_q}</b>  Accuracy: <b>{acc_g}%</b>"
-            )
+        if footer:
+            lines.append(f"\n{UI.THIN}{footer}")
 
-        lines.append(f"\n{UI.LINE}\n<i>Play /quiz to climb the ranks! 🚀</i>")
-
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
-            InlineKeyboardButton("📊 My Stats",  callback_data="my_stats"),
-        ]])
-
+        lines.append(f"\n{UI.LINE}\n  <i>Play /quiz to climb the ranks!</i>")
         text = "\n".join(lines)
-        if msg:
-            await self._edit(msg, text, kb)
+
+        # Leaderboard tab buttons
+        if is_group or mode == "group":
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("⚡ Play Quiz", callback_data="play_quiz"),
+                InlineKeyboardButton("📊 My Stats",  callback_data="my_stats"),
+            ]])
+        else:
+            global_btn  = InlineKeyboardButton(
+                "🌍 Global ✓" if mode == "global"  else "🌍 Global",
+                callback_data="lb_global")
+            weekly_btn  = InlineKeyboardButton(
+                "📅 Weekly ✓" if mode == "weekly"  else "📅 Weekly",
+                callback_data="lb_weekly")
+            monthly_btn = InlineKeyboardButton(
+                "📆 Monthly ✓" if mode == "monthly" else "📆 Monthly",
+                callback_data="lb_monthly")
+            kb = InlineKeyboardMarkup([
+                [global_btn, weekly_btn, monthly_btn],
+                [InlineKeyboardButton("⚡ Play Quiz", callback_data="play_quiz"),
+                 InlineKeyboardButton("📊 My Stats",  callback_data="my_stats")],
+            ])
+
+        if edit_msg:
+            await self._edit(edit_msg, text, kb)
+        elif wait_msg:
+            await self._edit(wait_msg, text, kb)
         else:
             await self._reply(update, text, reply_markup=kb)
 
-    # ════════════════════════════════════════════════════════
-    #  /addquiz
-    # ════════════════════════════════════════════════════════
+    # ─── /addquiz ────────────────────────────────────────────
 
     async def cmd_addquiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -980,7 +1001,7 @@ class TelegramQuizBot:
         lines = [l for l in raw if l]
 
         USAGE = (
-            f"➕ <b>ADD QUIZ QUESTION</b>\n"
+            f"➕ <b>ADD QUESTION</b>\n"
             f"{UI.LINE}\n\n"
             "<b>Format:</b>\n"
             "<code>/addquiz\n"
@@ -1013,16 +1034,16 @@ class TelegramQuizBot:
 
         category = lines[6].strip() if len(lines) > 6 else "General"
         msg = await self._reply(update, "⏳ <i>Saving to database...</i>")
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.3)
 
         result = self.quiz_manager.add_questions([{
             "question": question, "options": options,
             "correct_answer": correct, "category": category,
         }])
 
-        added = result.get("added", 0)
-        dups  = result.get("rejected", {}).get("duplicates", 0)
-        total = len(self.quiz_manager.questions)
+        added   = result.get("added", 0)
+        dups    = result.get("rejected", {}).get("duplicates", 0)
+        total   = len(self.quiz_manager.questions)
         mention = UI.mention(user.id, user.first_name or "Admin")
 
         if added > 0:
@@ -1030,12 +1051,13 @@ class TelegramQuizBot:
                 f"✅ <b>QUESTION ADDED</b>\n"
                 f"{UI.LINE}\n\n"
                 f"  Added by {mention}\n\n"
-                f"<b>📝 Preview</b>\n"
-                f"  {question[:60]}{'…' if len(question)>60 else ''}\n\n"
+                f"<b>PREVIEW</b>\n"
+                f"{UI.THIN}\n"
+                f"  {question[:65]}{'…' if len(question) > 65 else ''}\n\n"
                 f"  A: {options[0]}\n  B: {options[1]}\n"
                 f"  C: {options[2]}\n  D: {options[3]}\n\n"
-                f"  ✅ Answer: <b>Option {correct+1}</b> — {options[correct]}\n"
-                f"  📂 Category: <b>{category}</b>\n\n"
+                f"  ✅ Answer   ›  Option {correct+1} — <b>{options[correct]}</b>\n"
+                f"  📂 Category ›  <b>{category}</b>\n\n"
                 f"{UI.LINE}\n"
                 f"  📦 Total in bank: <b>{total}</b>"
             )
@@ -1057,9 +1079,7 @@ class TelegramQuizBot:
         if msg: await self._edit(msg, text)
         else:   await self._reply(update, text)
 
-    # ════════════════════════════════════════════════════════
-    #  /delquiz  — Smart inline button picker
-    # ════════════════════════════════════════════════════════
+    # ─── /delquiz ────────────────────────────────────────────
 
     async def cmd_delquiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -1067,26 +1087,21 @@ class TelegramQuizBot:
             await self._unauthorized(update)
             return
 
-        # ── REPLY-TO-POLL detection ────────────────────────────────────────
-        # If admin replies to a quiz poll with /delquiz → delete that question
+        # Reply-to-poll detection
         reply = update.effective_message.reply_to_message
         if reply and reply.poll:
-            poll_id = reply.poll.id
-            # Try to find Q ID from bot_data first
+            poll_id   = reply.poll.id
             poll_data = context.bot_data.get(f"poll_{poll_id}", {})
             q_id      = poll_data.get("question_id")
 
-            # Fallback: check DB poll mapping
             if q_id is None and self.db:
                 try:
                     q_id = self.db.get_quiz_id_from_poll(str(poll_id))
                 except Exception:
                     pass
 
-            # Fallback: match poll question text against DB
             if q_id is None:
-                poll_q = reply.poll.question or ""
-                # Strip leading emoji (cat_emoji prefix)
+                poll_q       = reply.poll.question or ""
                 poll_q_clean = re.sub(r"^\S+\s+", "", poll_q.strip())
                 for q in self.quiz_manager.questions:
                     if q.get("question", "").strip() == poll_q_clean.strip():
@@ -1097,7 +1112,7 @@ class TelegramQuizBot:
                 mention   = UI.mention(user.id, user.first_name or "Admin")
                 q_info    = next((q for q in self.quiz_manager.questions
                                   if q.get("id") == q_id), {})
-                q_preview = q_info.get("question", f"#{q_id}")[:50]
+                q_preview = q_info.get("question", f"#{q_id}")[:55]
 
                 msg = await self._reply(update, f"🗑️ <i>Deleting Q#{q_id}...</i>")
                 await asyncio.sleep(0.3)
@@ -1122,15 +1137,13 @@ class TelegramQuizBot:
                     await self._edit(msg, text)
                 return
             else:
-                # Could not identify the question
                 await self._reply(update,
-                    f"⚠️ <b>Cannot identify question</b>\n"
+                    f"⚠️ <b>Cannot Identify Question</b>\n"
                     f"{UI.LINE}\n\n"
                     "  Could not match this poll to any question.\n"
                     "  Use /delquiz without reply to pick from list."
                 )
                 return
-        # ── End reply-to-poll detection ────────────────────────────────────
 
         questions = self.quiz_manager.questions
         if not questions:
@@ -1156,16 +1169,16 @@ class TelegramQuizBot:
         lines = [
             f"🗑️ <b>DELETE QUESTION</b>\n"
             f"{UI.LINE}\n"
-            f"  Page <b>{page+1}</b> / <b>{pages}</b>  •  Total: <b>{total}</b>\n"
+            f"  Page <b>{page+1}</b> / <b>{pages}</b>  ·  Total: <b>{total}</b>\n"
             f"{UI.LINE}\n\n"
-            f"Tap a question to delete it:\n"
+            f"Select a question to delete:\n"
         ]
         for q in questions[start:end]:
             qid   = q.get("id", "?")
-            qtext = q.get("question", "")[:38]
+            qtext = q.get("question", "")[:40]
             cat   = q.get("category", "General")
             emoji = UI.cat_emoji(cat)
-            lines.append(f"  {emoji} <code>#{qid}</code>  {qtext}{'…' if len(q.get('question',''))>38 else ''}")
+            lines.append(f"  {emoji} <code>#{qid}</code>  {qtext}{'…' if len(q.get('question',''))>40 else ''}")
 
         return "\n".join(lines)
 
@@ -1176,7 +1189,6 @@ class TelegramQuizBot:
         pages = (total + per - 1) // per
         rows  = []
 
-        # Question buttons — 2 per row
         chunk = questions[start:start+per]
         for i in range(0, len(chunk), 2):
             row = []
@@ -1189,7 +1201,6 @@ class TelegramQuizBot:
                 ))
             rows.append(row)
 
-        # Navigation
         nav = []
         if page > 0:
             nav.append(InlineKeyboardButton("◀ Prev", callback_data=f"dq_page_{page-1}_{user_id}"))
@@ -1198,23 +1209,23 @@ class TelegramQuizBot:
         if nav:
             rows.append(nav)
 
-        rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"dq_cancel_{user_id}")])
+        rows.append([InlineKeyboardButton("✕ Cancel", callback_data=f"dq_cancel_{user_id}")])
         return InlineKeyboardMarkup(rows)
 
     async def _cb_delquiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
-        data  = query.data  # dq_del_ID_UID | dq_page_N_UID | dq_cancel_UID
+        data  = query.data
         actor = query.from_user
 
-        parts = data.split("_")
-        action = parts[1]  # del | page | cancel
+        parts  = data.split("_")
+        action = parts[1]
 
-        # Security: only the user who invoked /delquiz can interact
         try:
             owner_uid = int(parts[-1])
         except (ValueError, IndexError):
             owner_uid = 0
+
         if actor.id != owner_uid:
             await query.answer("❌ Not your menu!", show_alert=True)
             return
@@ -1240,10 +1251,9 @@ class TelegramQuizBot:
             return
 
         if action == "del":
-            qid = int(parts[2])
-            # Find question text for confirmation message
-            q_info = next((q for q in questions if q.get("id") == qid), None)
-            q_preview = q_info.get("question", "")[:50] if q_info else f"#{qid}"
+            qid     = int(parts[2])
+            q_info  = next((q for q in questions if q.get("id") == qid), None)
+            preview = q_info.get("question", "")[:55] if q_info else f"#{qid}"
 
             success = self.quiz_manager.delete_question_by_db_id(qid)
             mention = UI.mention(actor.id, actor.first_name or "Admin")
@@ -1253,8 +1263,8 @@ class TelegramQuizBot:
                 text = (
                     f"✅ <b>DELETED</b>\n"
                     f"{UI.LINE}\n\n"
-                    f"  Deleted by {mention}\n"
-                    f"  <code>#{qid}</code> — {q_preview}…\n\n"
+                    f"  By {mention}\n"
+                    f"  <code>#{qid}</code> — {preview}…\n\n"
                     f"  📦 Remaining: <b>{remaining}</b> questions"
                 )
                 try:
@@ -1270,9 +1280,7 @@ class TelegramQuizBot:
                 except Exception:
                     pass
 
-    # ════════════════════════════════════════════════════════
-    #  /editquiz
-    # ════════════════════════════════════════════════════════
+    # ─── /editquiz ───────────────────────────────────────────
 
     async def cmd_editquiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -1299,36 +1307,31 @@ class TelegramQuizBot:
             return
 
         total = len(questions)
-        lines = [
-            f"📋 <b>QUESTION BANK</b>  ({total} total)\n"
-            f"{UI.LINE}\n"
-        ]
+        lines = [f"📋 <b>QUESTION BANK</b>  ·  {total} questions\n{UI.LINE}\n"]
 
         for q in questions[:20]:
             qid   = q.get("id", "?")
-            qtext = q.get("question", "")[:42]
+            qtext = q.get("question", "")[:45]
             cat   = q.get("category", "General")
             emoji = UI.cat_emoji(cat)
             lines.append(
                 f"  {emoji} <code>#{qid}</code>  {qtext}"
-                + ("…" if len(q.get("question", "")) > 42 else "")
+                + ("…" if len(q.get("question", "")) > 45 else "")
             )
 
         if total > 20:
-            lines.append(f"\n  <i>…and {total-20} more</i>")
+            lines.append(f"\n  <i>… and {total-20} more questions</i>")
 
         lines.append(
             f"\n{UI.LINE}\n"
-            f"  /delquiz — Smart delete\n"
-            f"  /addquiz — Add question\n"
-            f"  /reload  — Sync from DB"
+            f"  /delquiz   Delete a question\n"
+            f"  /addquiz   Add a question\n"
+            f"  /reload    Sync from database"
         )
 
         if msg: await self._edit(msg, "\n".join(lines))
 
-    # ════════════════════════════════════════════════════════
-    #  /dev
-    # ════════════════════════════════════════════════════════
+    # ─── /dev ────────────────────────────────────────────────
 
     async def cmd_dev(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -1340,13 +1343,14 @@ class TelegramQuizBot:
             await self._dev.dev(update, context)
             return
 
-        msg = await self._reply(update, "🛠️ <i>Loading dev panel...</i>")
+        msg = await self._reply(update, "🛠️ <i>Loading developer panel...</i>")
         await asyncio.sleep(0.3)
 
-        mention = UI.mention(user.id, user.first_name or "Dev")
+        mention = UI.mention(user.id,
+            OWNER_NAME if self._is_owner(user.id) else (user.first_name or "Dev"))
         q_count = len(self.quiz_manager.questions)
         chats   = len(self.quiz_manager.active_chats)
-        users, groups = 0, 0
+        users = groups = 0
         if self.db:
             try:
                 users  = len(self.db.get_all_users_stats())
@@ -1357,25 +1361,24 @@ class TelegramQuizBot:
         text = (
             f"🛠️ <b>DEVELOPER PANEL</b>\n"
             f"{UI.LINE}\n\n"
-            f"  👤 {mention}\n\n"
-            f"<b>📊 Live Stats</b>\n"
-            f"  📦 Questions:    <b>{q_count}</b>\n"
-            f"  👥 Users:        <b>{users}</b>\n"
-            f"  💬 Groups:       <b>{groups}</b>\n"
-            f"  🟢 Active Chats: <b>{chats}</b>\n\n"
-            f"<b>⚡ Commands</b>\n"
-            f"  /addquiz  /delquiz  /editquiz\n"
-            f"  /broadcast  /reload  /restart\n"
-            f"  /botstats  /devstats  /activity\n"
-            f"  /performance\n\n"
+            f"  {mention}\n\n"
+            f"<b>LIVE STATS</b>\n"
+            f"{UI.THIN}\n"
+            f"  Questions    ›  <b>{q_count}</b>\n"
+            f"  Users        ›  <b>{users}</b>\n"
+            f"  Groups       ›  <b>{groups}</b>\n"
+            f"  Active Chats ›  <b>{chats}</b>\n\n"
+            f"<b>COMMANDS</b>\n"
+            f"{UI.THIN}\n"
+            f"  /addquiz   /delquiz   /editquiz\n"
+            f"  /broadcast /reload    /restart\n"
+            f"  /devstats  /activity  /performance\n\n"
             f"{UI.LINE}\n"
             f"  Owner ID: <code>{OWNER_ID}</code>"
         )
         if msg: await self._edit(msg, text)
 
-    # ════════════════════════════════════════════════════════
-    #  /broadcast
-    # ════════════════════════════════════════════════════════
+    # ─── /broadcast ──────────────────────────────────────────
 
     async def cmd_broadcast(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -1387,18 +1390,18 @@ class TelegramQuizBot:
             await self._dev.broadcast(update, context)
             return
 
-        raw = (update.effective_message.text or "").replace("/broadcast","").replace("/bc","").strip()
+        raw = (update.effective_message.text or "")\
+            .replace("/broadcast", "").replace("/bc", "").strip()
 
         if not raw:
-            text = (
+            await self._reply(update,
                 f"📡 <b>BROADCAST</b>\n"
                 f"{UI.LINE}\n\n"
                 "<b>Usage:</b>\n"
-                "  <code>/broadcast Your message</code>\n\n"
-                "Supports HTML: <code>&lt;b&gt;</code> <code>&lt;i&gt;</code> <code>&lt;code&gt;</code>\n"
-                "Alias: /bc"
+                "  <code>/broadcast Your message here</code>\n\n"
+                "Supports HTML: <code>&lt;b&gt;</code> <code>&lt;i&gt;</code>\n"
+                "Alias: <code>/bc</code>"
             )
-            await self._reply(update, text)
             return
 
         if not self.db:
@@ -1408,19 +1411,18 @@ class TelegramQuizBot:
         users  = self.db.get_pm_accessible_users()
         groups = self.db.get_all_groups()
         total  = len(users) + len(groups)
-        mention = UI.mention(user.id, user.first_name or "Owner")
 
         status = await self._reply(update,
-            f"📡 <b>Broadcasting...</b>\n"
+            f"📡 <b>BROADCASTING</b>\n"
             f"{UI.LINE}\n\n"
-            f"  Initiated by {mention}\n"
-            f"  👥 Users:  <b>{len(users)}</b>\n"
-            f"  💬 Groups: <b>{len(groups)}</b>\n"
-            f"  📨 Total:  <b>{total}</b>\n\n"
-            f"<i>Please wait...</i>"
+            f"  By {OWNER_NAME}\n\n"
+            f"  Users  ›  <b>{len(users)}</b>\n"
+            f"  Groups ›  <b>{len(groups)}</b>\n"
+            f"  Total  ›  <b>{total}</b>\n\n"
+            f"  <i>Sending...</i>"
         )
 
-        sent, failed = 0, 0
+        sent = failed = 0
         for u in users:
             try:
                 await context.bot.send_message(
@@ -1442,7 +1444,7 @@ class TelegramQuizBot:
                 sent += 1
                 await asyncio.sleep(0.05)
             except TelegramError as e:
-                if any(w in str(e).lower() for w in ("topic","closed","thread")):
+                if any(w in str(e).lower() for w in ("topic", "closed", "thread")):
                     try:
                         await context.bot.send_message(
                             chat_id=g["chat_id"], text=raw, parse_mode=ParseMode.HTML)
@@ -1460,14 +1462,12 @@ class TelegramQuizBot:
             await self._edit(status,
                 f"✅ <b>BROADCAST COMPLETE</b>\n"
                 f"{UI.LINE}\n\n"
-                f"  📤 Sent:    <b>{sent}</b>\n"
-                f"  ❌ Failed:  <b>{failed}</b>\n"
-                f"  📊 Rate:    [{UI.bar(rate)}] <b>{rate}%</b>"
+                f"  Sent    ›  <b>{sent}</b>\n"
+                f"  Failed  ›  <b>{failed}</b>\n"
+                f"  Rate    ›  [{UI.bar(rate)}] <b>{rate}%</b>"
             )
 
-    # ════════════════════════════════════════════════════════
-    #  /reload
-    # ════════════════════════════════════════════════════════
+    # ─── /reload ─────────────────────────────────────────────
 
     async def cmd_reload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -1475,7 +1475,8 @@ class TelegramQuizBot:
             await self._unauthorized(update)
             return
 
-        mention = UI.mention(user.id, user.first_name or "Admin")
+        mention = UI.mention(user.id,
+            OWNER_NAME if self._is_owner(user.id) else (user.first_name or "Admin"))
         msg = await self._reply(update, "🔄 <i>Syncing from MongoDB...</i>")
         await asyncio.sleep(0.4)
 
@@ -1484,14 +1485,14 @@ class TelegramQuizBot:
             self.quiz_manager.reload_data()
             new  = len(self.quiz_manager.questions)
             diff = new - old
+            sign = "+" if diff >= 0 else ""
             text = (
                 f"✅ <b>RELOAD COMPLETE</b>\n"
                 f"{UI.LINE}\n\n"
                 f"  By {mention}\n\n"
-                f"  📦 Questions: <b>{new}</b>  "
-                f"({'<b>+'+str(diff)+'</b>' if diff>=0 else '<b>'+str(diff)+'</b>'})\n"
-                f"  🗄️  Source: MongoDB Atlas\n"
-                f"  ⚡ Cache refreshed!"
+                f"  Questions ›  <b>{new}</b>  <i>({sign}{diff})</i>\n"
+                f"  Source    ›  MongoDB Atlas\n"
+                f"  Cache     ›  ✅ Refreshed"
             )
         except Exception as e:
             text = (
@@ -1501,9 +1502,7 @@ class TelegramQuizBot:
             )
         if msg: await self._edit(msg, text)
 
-    # ════════════════════════════════════════════════════════
-    #  /restart
-    # ════════════════════════════════════════════════════════
+    # ─── /restart ────────────────────────────────────────────
 
     async def cmd_restart(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -1511,12 +1510,11 @@ class TelegramQuizBot:
             await self._unauthorized(update)
             return
 
-        mention = UI.mention(user.id, user.first_name or "Owner")
         await self._reply(update,
             f"🔄 <b>RESTARTING</b>\n"
             f"{UI.LINE}\n\n"
-            f"  Initiated by {mention}\n"
-            f"  ⏳ Shutting down gracefully...\n"
+            f"  Initiated by {OWNER_NAME}\n"
+            f"  Shutting down gracefully...\n"
             f"  ✅ Back online in seconds!"
         )
         import sys
@@ -1525,10 +1523,7 @@ class TelegramQuizBot:
         await asyncio.sleep(1)
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
-
-    # ════════════════════════════════════════════════════════
-    #  /importquiz  — usage hint
-    # ════════════════════════════════════════════════════════
+    # ─── /importquiz ─────────────────────────────────────────
 
     async def cmd_importquiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -1539,32 +1534,30 @@ class TelegramQuizBot:
         text = (
             f"📥 <b>BULK IMPORT</b>\n"
             f"{UI.LINE}\n\n"
-            f"Just send a <b>.txt file</b> to this chat!\n\n"
-            f"<b>✅ Auto-detected formats:</b>\n"
-            f"  • Numbered questions (1. / Q1:)\n"
-            f"  • A) B) C) D) options\n"
-            f"  • Answer: B / Ans: 2 / Correct: C\n"
-            f"  • Inline options on same line\n"
-            f"  • Asterisk * to mark correct answer\n\n"
-            f"<b>📌 No fixed format required</b>\n"
-            f"  The bot auto-detects the structure.\n\n"
-            f"<b>Protection:</b>\n"
+            f"  Send a <b>.txt file</b> to this chat.\n\n"
+            f"<b>AUTO-DETECTED FORMATS</b>\n"
+            f"{UI.THIN}\n"
+            f"  ◈ Numbered  —  1. / Q1:\n"
+            f"  ◈ Options   —  A) B) C) D)\n"
+            f"  ◈ Answer    —  Answer: B / Ans: 2\n"
+            f"  ◈ Inline    —  All on same line\n"
+            f"  ◈ Asterisk  —  C) opt *\n\n"
+            f"<b>PROTECTION</b>\n"
+            f"{UI.THIN}\n"
             f"  ✅ Duplicate detection\n"
-            f"  ✅ Validation\n"
-            f"  ✅ Auto category tagging\n\n"
+            f"  ✅ Format validation\n"
+            f"  ✅ Auto category tagging\n"
+            f"  ✅ Import report\n\n"
             f"{UI.LINE}\n"
-            f"<i>Send your .txt file now →</i>"
+            f"  <i>Send your .txt file to begin →</i>"
         )
         await self._reply(update, text)
 
-    # ════════════════════════════════════════════════════════
-    #  DOCUMENT HANDLER — Bulk .txt import
-    # ════════════════════════════════════════════════════════
+    # ─── DOCUMENT HANDLER — Bulk .txt import ─────────────────
 
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
 
-        # Only authorized users
         if not await self._is_authorized(user.id):
             await self._unauthorized(update)
             return
@@ -1573,10 +1566,10 @@ class TelegramQuizBot:
         if not doc:
             return
 
-        mention = UI.mention(user.id, user.first_name or "Admin")
+        mention = UI.mention(user.id,
+            OWNER_NAME if self._is_owner(user.id) else (user.first_name or "Admin"))
 
-        # Only accept .txt files
-        fname = doc.file_name or ""
+        fname  = doc.file_name or ""
         is_txt = (
             fname.lower().endswith(".txt") or
             (doc.mime_type or "").startswith("text/")
@@ -1590,29 +1583,27 @@ class TelegramQuizBot:
             )
             return
 
-        # File size guard (max 2MB)
         if doc.file_size and doc.file_size > 2 * 1024 * 1024:
             await self._reply(update,
                 f"❌ <b>File Too Large</b>\n"
                 f"{UI.LINE}\n\n"
-                f"  Max size: 2MB.\n"
+                f"  Maximum size: 2 MB.\n"
                 f"  Split into smaller files."
             )
             return
 
-        # Step 1 — Show progress
         msg = await self._reply(update,
-            f"📥 <b>IMPORTING</b>\n"
+            f"📥 <b>IMPORT STARTED</b>\n"
             f"{UI.LINE}\n\n"
             f"  By {mention}\n"
-            f"  📄 File: <code>{fname}</code>\n"
-            f"  Size:   <code>{doc.file_size or 0:,} bytes</code>\n\n"
-            f"  ⏳ Detecting quizzes..."
+            f"  📄 <code>{fname}</code>\n"
+            f"  Size: <code>{doc.file_size or 0:,} bytes</code>\n\n"
+            f"  ⏳ Parsing questions..."
         )
 
-        # Step 2 — Download file
         try:
-            file_obj = await context.bot.get_file(doc.file_id, read_timeout=60, write_timeout=60, connect_timeout=60)
+            file_obj  = await context.bot.get_file(doc.file_id,
+                read_timeout=60, write_timeout=60, connect_timeout=60)
             raw_bytes = await file_obj.download_as_bytearray(read_timeout=60)
         except Exception as e:
             logger.error(f"File download error: {e}")
@@ -1624,32 +1615,29 @@ class TelegramQuizBot:
                 )
             return
 
-        # Step 3 — Decode text (try UTF-8 then latin-1)
         try:
             text = raw_bytes.decode("utf-8")
         except UnicodeDecodeError:
             try:
                 text = raw_bytes.decode("latin-1")
-            except Exception as e:
+            except Exception:
                 if msg:
                     await self._edit(msg,
-                        f"❌ <b>Cannot Read File</b>\n"
+                        f"❌ <b>Encoding Error</b>\n"
                         f"{UI.LINE}\n\n"
-                        f"  Save as UTF-8 and retry."
+                        f"  Please save the file as UTF-8 and retry."
                     )
                 return
 
-        # Step 4 — Parse & validate
         if msg:
             await self._edit(msg,
-                f"📥 <b>IMPORTING</b>\n"
+                f"📥 <b>IMPORT STARTED</b>\n"
                 f"{UI.LINE}\n\n"
                 f"  By {mention}\n"
                 f"  📄 <code>{fname}</code>\n\n"
                 f"  🔍 Analyzing {len(text.splitlines())} lines..."
             )
 
-        # Step 5 — Bulk import
         try:
             from src.bot.quiz_parser import bulk_import
             result = bulk_import(text, self.quiz_manager)
@@ -1663,7 +1651,6 @@ class TelegramQuizBot:
                 )
             return
 
-        # Step 6 — Show summary
         detected = result.get("total_detected", 0)
         imported = result.get("imported", 0)
         skipped  = result.get("skipped", 0)
@@ -1671,39 +1658,39 @@ class TelegramQuizBot:
         errors   = result.get("errors", [])
         total_q  = len(self.quiz_manager.questions)
 
-        rate     = int(imported / max(detected, 1) * 100)
-        bar      = UI.bar(rate)
+        rate = int(imported / max(detected, 1) * 100)
+        bar  = UI.bar(rate)
 
         text_out = (
-            f"📊 <b>IMPORT SUMMARY</b>\n"
+            f"📊 <b>IMPORT REPORT</b>\n"
             f"{UI.LINE}\n\n"
             f"  By {mention}\n"
             f"  📄 <code>{fname}</code>\n\n"
-            f"  🔍 Detected:  <b>{detected}</b>\n"
-            f"  ✅ Imported:  <b>{imported}</b>\n"
-            f"  ⚠️ Skipped:   <b>{skipped}</b>  <i>(dupes/incomplete)</i>\n"
-            f"  ❌ Failed:    <b>{failed}</b>\n\n"
-            f"  [{bar}] <b>{rate}%</b> success\n\n"
+            f"<b>RESULTS</b>\n"
+            f"{UI.THIN}\n"
+            f"  Detected  ›  <b>{detected}</b>\n"
+            f"  Imported  ›  <b>{imported}</b>\n"
+            f"  Skipped   ›  <b>{skipped}</b>  <i>(duplicates)</i>\n"
+            f"  Failed    ›  <b>{failed}</b>\n\n"
+            f"  Success   ›  [{bar}] <b>{rate}%</b>\n\n"
             f"  📦 Total in DB: <b>{total_q}</b>\n"
         )
         if errors:
-            text_out += f"\n<b>⚠️ Errors (first {len(errors)}):</b>\n"
+            text_out += f"\n<b>ERRORS (first {min(len(errors), 3)}):</b>\n"
             for err in errors[:3]:
-                text_out += f"  <code>{str(err)[:60]}</code>\n"
+                text_out += f"  <code>{str(err)[:65]}</code>\n"
 
-        text_out += f"\n{UI.LINE}\n<i>Use /quiz to test your new questions!</i>"
+        text_out += f"\n{UI.LINE}\n  <i>Use /quiz to test your new questions!</i>"
 
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
+            InlineKeyboardButton("⚡ Play Quiz", callback_data="play_quiz"),
         ]])
         if msg:
             await self._edit(msg, text_out, kb)
         else:
             await self._reply(update, text_out, reply_markup=kb)
 
-    # ════════════════════════════════════════════════════════
-    #  CALLBACK HANDLER
-    # ════════════════════════════════════════════════════════
+    # ─── CALLBACK HANDLER ─────────────────────────────────────
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -1711,7 +1698,21 @@ class TelegramQuizBot:
         data  = query.data
 
         if   data == "play_quiz":   await self.cmd_quiz(update, context)
-        elif data == "leaderboard": await self.cmd_leaderboard(update, context)
         elif data == "my_stats":    await self.cmd_stats(update, context)
         elif data == "help":        await self.cmd_help(update, context)
         elif data == "back_start":  await self.cmd_start(update, context)
+
+        elif data == "leaderboard":
+            await self._show_leaderboard(update, context, mode="global")
+
+        elif data == "lb_global":
+            await self._show_leaderboard(update, context, mode="global",
+                                         edit_msg=query.message)
+
+        elif data == "lb_weekly":
+            await self._show_leaderboard(update, context, mode="weekly",
+                                         edit_msg=query.message)
+
+        elif data == "lb_monthly":
+            await self._show_leaderboard(update, context, mode="monthly",
+                                         edit_msg=query.message)

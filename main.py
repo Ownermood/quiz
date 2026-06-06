@@ -106,15 +106,37 @@ def run_polling_mode(config: Config):
 
     async def _run_all():
         from src.bot.handlers import TelegramQuizBot
+        from src.utils.scheduler import AutoQuizScheduler
+
         bot = TelegramQuizBot(quiz_mgr, db_manager=db_mgr)
         await bot.initialize(config.telegram_token)
         logger.info("✅ Bot initialized — handlers registered")
         logger.info(f"✅ Questions loaded: {len(quiz_mgr.questions)}")
+
+        # Pre-populate active_chats from MongoDB groups for restart resilience
+        try:
+            groups = db_mgr.get_all_groups()
+            for g in groups:
+                cid = g.get("chat_id")
+                if cid and cid not in quiz_mgr.active_chats:
+                    quiz_mgr.active_chats.append(cid)
+            if groups:
+                logger.info(f"✅ Pre-loaded {len(groups)} active groups from DB")
+        except Exception as e:
+            logger.warning(f"Could not pre-load groups: {e}")
+
+        # Start auto-quiz scheduler (every 30 minutes)
+        scheduler = AutoQuizScheduler(bot, quiz_mgr, db_manager=db_mgr, interval_minutes=30)
+        scheduler.start()
+
         logger.info("🎯 Bot is live! Listening for messages… (Ctrl+C to stop)")
-        await bot.application.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=["message", "poll_answer", "callback_query"],
-        )
+        try:
+            await bot.application.run_polling(
+                drop_pending_updates=True,
+                allowed_updates=["message", "poll_answer", "callback_query"],
+            )
+        finally:
+            scheduler.stop()
 
     asyncio.run(_run_all())
 
