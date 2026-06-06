@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLAT Vision — Quiz Admin</title>
+<style>
+  /* ── Reset & tokens ─────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0a0b0f;
+    --surface:  #12141a;
+    --surface2: #1a1d26;
+    --border:   #252836;
+    --border2:  #2e3245;
+    --accent:   #6c63ff;
+    --accent2:  #8b83ff;
+    --green:    #22c55e;
+    --red:      #ef4444;
+    --yellow:   #f59e0b;
+    --text:     #e2e4f0;
+    --muted:    #6b7280;
+    --radius:   12px;
+    --shadow:   0 4px 24px rgba(0,0,0,.45);
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ── Scrollbar ──────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* ── Header ─────────────────────────────────────── */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(10,11,15,.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 28px;
+    height: 62px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+  .logo span { color: var(--accent2); }
+  .version-badge {
+    font-size: 11px; font-weight: 600;
+    background: var(--accent); color: #fff;
+    padding: 2px 9px; border-radius: 20px;
+  }
+  .live-indicator {
+    margin-left: auto; display: flex; align-items: center; gap: 7px;
+    font-size: 12px; color: var(--muted);
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 0 rgba(34,197,94,.6);
+    animation: pulse-dot 2s infinite;
+  }
+  @keyframes pulse-dot {
+    0%   { box-shadow: 0 0 0 0 rgba(34,197,94,.6); }
+    70%  { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+    100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+  }
+
+  /* ── Layout ─────────────────────────────────────── */
+  .layout { display: flex; min-height: calc(100vh - 62px); }
+
+  /* ── Sidebar ─────────────────────────────────────── */
+  .sidebar {
+    width: 220px; flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px 12px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .nav-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted);
+    padding: 12px 12px 6px;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 8px;
+    cursor: pointer; font-size: 14px; color: var(--muted);
+    transition: all .18s; border: none; background: none;
+    width: 100%; text-align: left;
+  }
+  .nav-item:hover  { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: var(--accent); color: #fff; }
+  .nav-item .icon  { font-size: 16px; width: 20px; text-align: center; }
+
+  /* ── Main ────────────────────────────────────────── */
+  .main { flex: 1; overflow-y: auto; padding: 28px; }
+
+  /* ── Stats cards ─────────────────────────────────── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px; margin-bottom: 28px;
+  }
+  .stat-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 18px;
+    position: relative; overflow: hidden;
+    transition: transform .2s, border-color .2s;
+  }
+  .stat-card:hover { transform: translateY(-2px); border-color: var(--border2); }
+  .stat-card::after {
+    content: ''; position: absolute;
+    top: 0; left: 0; right: 0; height: 3px;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  .stat-card.blue::after  { background: var(--accent); }
+  .stat-card.green::after { background: var(--green); }
+  .stat-card.yellow::after{ background: var(--yellow); }
+  .stat-card.red::after   { background: var(--red); }
+  .stat-num  { font-size: 30px; font-weight: 700; color: var(--text); line-height: 1; }
+  .stat-label{ font-size: 12px; color: var(--muted); margin-top: 6px; font-weight: 500; }
+  .stat-icon { position: absolute; top: 16px; right: 16px; font-size: 22px; opacity: .3; }
+
+  /* ── Panel sections ─────────────────────────────── */
+  .panel { display: none; animation: fadeIn .25s ease; }
+  .panel.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+
+  /* ── Card ────────────────────────────────────────── */
+  .card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card-title {
+    font-size: 15px; font-weight: 600; margin-bottom: 18px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  /* ── Form elements ───────────────────────────────── */
+  .form-group { margin-bottom: 16px; }
+  label { display: block; font-size: 12px; font-weight: 600;
+          color: var(--muted); margin-bottom: 6px; text-transform: uppercase;
+          letter-spacing: .4px; }
+  input, textarea, select {
+    width: 100%; background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: 8px; padding: 10px 14px;
+    color: var(--text); font-size: 14px;
+    outline: none; transition: border-color .18s, box-shadow .18s;
+    font-family: inherit;
+  }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(108,99,255,.15);
+  }
+  textarea { min-height: 76px; resize: vertical; }
+  .opts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* ── Buttons ──────────────────────────────────────── */
+  .btn {
+    padding: 10px 20px; border-radius: 8px; border: none;
+    cursor: pointer; font-size: 13px; font-weight: 600;
+    transition: all .18s; display: inline-flex; align-items: center; gap: 7px;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #7b73ff; transform: translateY(-1px);
+                        box-shadow: 0 4px 14px rgba(108,99,255,.4); }
+  .btn-danger  { background: var(--red); color: #fff; }
+  .btn-danger:hover  { background: #dc2626; transform: translateY(-1px); }
+  .btn-ghost   { background: var(--surface); border: 1px solid var(--border2);
+                  color: var(--text); }
+  .btn-ghost:hover { background: var(--surface2); }
+  .btn-sm { padding: 6px 13px; font-size: 12px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; transform: none !important; }
+  .btn.loading::after {
+    content: ''; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Table ───────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: var(--surface); }
+  th { padding: 11px 14px; text-align: left; color: var(--muted);
+       font-weight: 600; font-size: 11px; text-transform: uppercase;
+       letter-spacing: .5px; white-space: nowrap; border-bottom: 1px solid var(--border); }
+  td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover td { background: rgba(255,255,255,.03); }
+  .td-question { max-width: 300px; white-space: nowrap;
+                 overflow: hidden; text-overflow: ellipsis; }
+  code { background: rgba(108,99,255,.15); color: var(--accent2);
+         padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+  /* ── Badges ──────────────────────────────────────── */
+  .badge {
+    display: inline-flex; align-items: center;
+    padding: 2px 8px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .badge-green  { background: rgba(34,197,94,.12);  color: #4ade80; }
+  .badge-blue   { background: rgba(108,99,255,.15); color: var(--accent2); }
+  .badge-yellow { background: rgba(245,158,11,.12); color: #fbbf24; }
+  .badge-red    { background: rgba(239,68,68,.12);  color: #f87171; }
+
+  /* ── Search ──────────────────────────────────────── */
+  .search-wrap { position: relative; margin-bottom: 16px; }
+  .search-wrap input { padding-left: 38px; }
+  .search-wrap .search-icon {
+    position: absolute; left: 12px; top: 50%;
+    transform: translateY(-50%); font-size: 15px; pointer-events: none;
+  }
+
+  /* ── Empty state ──────────────────────────────────── */
+  .empty { text-align: center; padding: 50px 20px; color: var(--muted); }
+  .empty .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: .5; }
+
+  /* ── Toast ───────────────────────────────────────── */
+  #toast {
+    position: fixed; bottom: 26px; right: 26px;
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 14px 20px;
+    font-size: 14px; z-index: 999; max-width: 320px;
+    transform: translateY(80px) scale(.95); opacity: 0;
+    transition: all .28s cubic-bezier(.34,1.56,.64,1);
+    pointer-events: none;
+  }
+  #toast.show { transform: translateY(0) scale(1); opacity: 1; pointer-events: auto; }
+  #toast.success { border-left: 3px solid var(--green); }
+  #toast.error   { border-left: 3px solid var(--red); }
+  #toast.info    { border-left: 3px solid var(--accent); }
+
+  /* ── Modal ───────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.65);
+    backdrop-filter: blur(4px); z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: auto; }
+  .modal {
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 28px; width: 90%; max-width: 520px;
+    transform: scale(.93) translateY(16px);
+    transition: transform .25s cubic-bezier(.34,1.4,.64,1);
+    box-shadow: var(--shadow);
+  }
+  .modal-overlay.open .modal { transform: scale(1) translateY(0); }
+  .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 20px;
+                 display: flex; align-items: center; gap: 9px; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+  /* ── Correct answer radio ────────────────────────── */
+  .answer-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .answer-opt {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; border-radius: 8px;
+    border: 1px solid var(--border2); cursor: pointer;
+    transition: all .15s; font-size: 13px;
+  }
+  .answer-opt input { width: auto; accent-color: var(--green); }
+  .answer-opt:has(input:checked) {
+    border-color: var(--green); background: rgba(34,197,94,.08);
+  }
+
+  /* ── Responsive ──────────────────────────────────── */
+  @media (max-width: 768px) {
+    .sidebar { display: none; }
+    .tabs-mobile {
+      display: flex; gap: 6px; overflow-x: auto; padding: 0 16px 12px;
+      scrollbar-width: none;
+    }
+    .tabs-mobile::-webkit-scrollbar { display: none; }
+    .tab-pill {
+      flex-shrink: 0; padding: 7px 14px; border-radius: 20px;
+      font-size: 12px; font-weight: 600; border: 1px solid var(--border2);
+      background: var(--surface2); color: var(--muted); cursor: pointer;
+    }
+    .tab-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .main { padding: 16px; }
+  }
+  @media (min-width: 769px) { .tabs-mobile { display: none; } }
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">CLAT <span>Vision</span></div>
+  <div class="version-badge">Admin v2</div>
+  <div class="live-indicator">
+    <div class="dot"></div>
+    <span id="live-time">Loading...</span>
+  </div>
+</header>
+
+<!-- ── Mobile tabs ── -->
+<div class="tabs-mobile" id="mobileTabs">
+  <div class="tab-pill active" onclick="switchTab('dashboard',this)">📊 Dashboard</div>
+  <div class="tab-pill" onclick="switchTab('questions',this)">📚 Questions</div>
+  <div class="tab-pill" onclick="switchTab('add',this)">➕ Add</div>
+  <div class="tab-pill" onclick="switchTab('users',this)">👥 Users</div>
+  <div class="tab-pill" onclick="switchTab('broadcast',this)">📡 Broadcast</div>
+</div>
+
+<!-- ── Layout ── -->
+<div class="layout">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="nav-label">Main</div>
+    <button class="nav-item active" onclick="switchTab('dashboard',this)">
+      <span class="icon">📊</span> Dashboard
+    </button>
+    <button class="nav-item" onclick="switchTab('questions',this)">
+      <span class="icon">📚</span> Questions
+    </button>
+    <button class="nav-item" onclick="switchTab('add',this)">
+      <span class="icon">➕</span> Add Question
+    </button>
+    <div class="nav-label">Management</div>
+    <button class="nav-item" onclick="switchTab('users',this)">
+      <span class="icon">👥</span> Users
+    </button>
+    <button class="nav-item" onclick="switchTab('broadcast',this)">
+      <span class="icon">📡</span> Broadcast
+    </button>
+    <div class="nav-label">System</div>
+    <button class="nav-item" onclick="switchTab('metrics',this)">
+      <span class="icon">📈</span> Metrics
+    </button>
+  </nav>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- ── Dashboard ── -->
+    <div class="panel active" id="panel-dashboard">
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card blue">
+          <div class="stat-num" id="s-questions">—</div>
+          <div class="stat-label">Total Questions</div>
+          <div class="stat-icon">📚</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-num" id="s-users">—</div>
+          <div class="stat-label">Total Users</div>
+          <div class="stat-icon">👥</div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-num" id="s-groups">—</div>
+          <div class="stat-label">Groups</div>
+          <div class="stat-icon">💬</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-num" id="s-active">—</div>
+          <div class="stat-label">Active (24h)</div>
+          <div class="stat-icon">⚡</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-num" id="s-quizzes">—</div>
+          <div class="stat-label">Quizzes (24h)</div>
+          <div class="stat-icon">🎯</div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-num" id="s-accuracy">—</div>
+          <div class="stat-label">Accuracy (24h)</div>
+          <div class="stat-icon">✅</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⚡ Quick Actions</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-ghost" onclick="loadMetrics()">🔄 Refresh Stats</button>
+          <button class="btn btn-ghost" onclick="switchTab('add',document.querySelector('[onclick*=add]'))">➕ Add Question</button>
+          <button class="btn btn-ghost" onclick="switchTab('questions',document.querySelector('[onclick*=questions]'))">📋 View All Questions</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmReload()">♻️ Reload Bot DB</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Questions ── -->
+    <div class="panel" id="panel-questions">
+      <div class="card">
+        <div class="card-title">📚 Question Bank</div>
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="qSearch" placeholder="Search questions…" oninput="filterQuestions()">
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+          <select id="catFilter" onchange="filterQuestions()" style="width:auto;padding:8px 12px;">
+            <option value="">All Categories</option>
+          </select>
+          <span id="q-count" style="font-size:13px;color:var(--muted);"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#ID</th>
+                <th>Question</th>
+                <th>Category</th>
+                <th>Answer</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="qTable">
+              <tr><td colspan="5" class="empty"><div class="empty-icon">⏳</div>Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Add Question ── -->
+    <div class="panel" id="panel-add">
+      <div class="card">
+        <div class="card-title">➕ Add New Question</div>
+        <div class="form-group">
+          <label>Question Text</label>
+          <textarea id="addQ" placeholder="Type the question here…" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Answer Options</label>
+          <div class="opts-grid">
+            <input id="opt0" placeholder="Option A">
+            <input id="opt1" placeholder="Option B">
+            <input id="opt2" placeholder="Option C">
+            <input id="opt3" placeholder="Option D">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Correct Answer</label>
+          <div class="answer-options">
+            <label class="answer-opt"><input type="radio" name="correct" value="0"> Option A</label>
+            <label class="answer-opt"><input type="radio" name="correct" value="1"> Option B</label>
+            <label class="answer-opt"><input type="radio" name="correct" value="2"> Option C</label>
+            <label class="answer-opt"><input type="radio" name="correct" value="3"> Option D</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="addCat">
+            <option value="Legal Reasoning">⚖️ Legal Reasoning</option>
+            <option value="Current Affairs">📰 Current Affairs</option>
+            <option value="English">📝 English</option>
+            <option value="Logical Reasoning">🧠 Logical Reasoning</option>
+            <option value="GK">🌐 GK</option>
+            <option value="Quantitative Techniques">🔢 Quantitative Techniques</option>
+            <option value="General">📚 General</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="addBtn" onclick="addQuestion()">
+          ➕ Add Question
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Users ── -->
+    <div class="panel" id="panel-users">
+      <div class="card">
+        <div class="card-title">👥 Registered Users</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>User ID</th>
+                <th>Name</th>
+                <th>Username</th>
+                <th>Last Seen</th>
+                <th>PM</th>
+              </tr>
+            </thead>
+            <tbody id="usersTable">
+              <tr><td colspan="5" class="empty"><div class="empty-icon">⏳</div>Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Broadcast ── -->
+    <div class="panel" id="panel-broadcast">
+      <div class="card">
+        <div class="card-title">📡 Broadcast Message</div>
+        <div class="form-group">
+          <label>Message (HTML supported)</label>
+          <textarea id="bcMsg" rows="5" placeholder="Type your message…&#10;Supports &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, &lt;code&gt;mono&lt;/code&gt;"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-primary" id="bcBtn" onclick="sendBroadcast()">
+            📡 Send Broadcast
+          </button>
+          <span id="bcStatus" style="font-size:13px;color:var(--muted);"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Metrics ── -->
+    <div class="panel" id="panel-metrics">
+      <div class="card">
+        <div class="card-title">📈 System Metrics</div>
+        <div id="metricsContent" style="color:var(--muted);font-size:14px;">
+          Click Refresh to load metrics.
+        </div>
+        <div style="margin-top:16px;">
+          <button class="btn btn-ghost" onclick="loadMetrics()">🔄 Refresh</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ── Edit Modal ── -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-title">✏️ Edit Question <code id="editId"></code></div>
+    <div class="form-group">
+      <label>Question Text</label>
+      <textarea id="editQ" rows="3"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Options</label>
+      <div class="opts-grid">
+        <input id="eOpt0" placeholder="Option A">
+        <input id="eOpt1" placeholder="Option B">
+        <input id="eOpt2" placeholder="Option C">
+        <input id="eOpt3" placeholder="Option D">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Correct Answer</label>
+      <div class="answer-options">
+        <label class="answer-opt"><input type="radio" name="ecorrect" value="0"> A</label>
+        <label class="answer-opt"><input type="radio" name="ecorrect" value="1"> B</label>
+        <label class="answer-opt"><input type="radio" name="ecorrect" value="2"> C</label>
+        <label class="answer-opt"><input type="radio" name="ecorrect" value="3"> D</label>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEdit()">💾 Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Delete Confirm Modal ── -->
+<div class="modal-overlay" id="delModal">
+  <div class="modal">
+    <div class="modal-title">🗑 Delete Question</div>
+    <p style="color:var(--muted);font-size:14px;margin-bottom:8px;">
+      Are you sure you want to delete question <code id="delId"></code>?<br>
+      <span style="color:var(--red);font-size:12px;">This action cannot be undone.</span>
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeDelModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDelete()">🗑 Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast ── -->
+<div id="toast"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────
+let allQuestions = [];
+let deleteTarget  = null;
+let editTarget    = null;
+
+// ── Clock ────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('live-time').textContent =
+    now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Tab switching ─────────────────────────────────────────
+function switchTab(id, el) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.tab-pill').forEach(t => t.classList.remove('active'));
+
+  document.getElementById('panel-' + id).classList.add('active');
+  if (el) el.classList.add('active');
+
+  if (id === 'questions')  loadQuestions();
+  if (id === 'users')      loadUsers();
+  if (id === 'dashboard')  loadMetrics();
+  if (id === 'metrics')    loadMetrics();
+}
+
+// ── Toast ─────────────────────────────────────────────────
+function toast(msg, type = 'info', dur = 3500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `show ${type}`;
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), dur);
+}
+
+// ── API helper ────────────────────────────────────────────
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Metrics ───────────────────────────────────────────────
+async function loadMetrics() {
+  try {
+    const d = await api('/api/metrics');
+    document.getElementById('s-questions').textContent = d.total_questions ?? '—';
+    document.getElementById('s-users').textContent     = d.total_users ?? '—';
+    document.getElementById('s-groups').textContent    = d.total_groups ?? '—';
+    document.getElementById('s-active').textContent    = d.active_users_24h ?? '—';
+    document.getElementById('s-quizzes').textContent   = d.quiz_attempts_24h ?? '—';
+    document.getElementById('s-accuracy').textContent  = d.quiz_accuracy_24h != null ? d.quiz_accuracy_24h + '%' : '—';
+
+    // Metrics panel details
+    document.getElementById('metricsContent').innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
+        ${Object.entries(d).map(([k,v]) => `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">${k.replace(/_/g,' ')}</div>
+            <div style="font-size:18px;font-weight:700;margin-top:4px;">${v}</div>
+          </div>`).join('')}
+      </div>`;
+  } catch(e) {
+    console.error('metrics error', e);
+  }
+}
+
+// ── Questions ─────────────────────────────────────────────
+async function loadQuestions() {
+  const tbody = document.getElementById('qTable');
+  tbody.innerHTML = `<tr><td colspan="5" class="empty"><div class="empty-icon">⏳</div>Loading…</td></tr>`;
+  try {
+    const data = await api('/api/questions');
+    allQuestions = data.questions || [];
+    populateCatFilter(allQuestions);
+    renderQuestions(allQuestions);
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red);">❌ Failed to load questions</td></tr>`;
+  }
+}
+
+function populateCatFilter(qs) {
+  const sel = document.getElementById('catFilter');
+  const cats = [...new Set(qs.map(q => q.category || 'General'))].sort();
+  const cur  = sel.value;
+  sel.innerHTML = '<option value="">All Categories</option>' +
+    cats.map(c => `<option value="${c}"${c===cur?' selected':''}>${c}</option>`).join('');
+}
+
+function renderQuestions(qs) {
+  const tbody = document.getElementById('qTable');
+  document.getElementById('q-count').textContent = `${qs.length} question${qs.length !== 1 ? 's' : ''}`;
+  if (!qs.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty"><div class="empty-icon">📭</div>No questions found</div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = qs.map(q => {
+    const opts   = q.options || [];
+    const correct= typeof q.correct_answer === 'number' ? q.correct_answer : 0;
+    const ans    = opts[correct] || '—';
+    const cat    = q.category || 'General';
+    const label  = catBadge(cat);
+    return `<tr>
+      <td><code>${q.id}</code></td>
+      <td class="td-question" title="${esc(q.question)}">${esc(q.question)}</td>
+      <td>${label}</td>
+      <td><span class="badge badge-green">${esc(ans)}</span></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="openEdit(${q.id})" style="margin-right:6px;">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="openDel(${q.id})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function catBadge(cat) {
+  const c = (cat || '').toLowerCase();
+  const cls = c.includes('legal') ? 'badge-blue'
+    : c.includes('english') ? 'badge-yellow'
+    : c.includes('current') ? 'badge-red'
+    : 'badge-green';
+  return `<span class="badge ${cls}">${esc(cat)}</span>`;
+}
+
+function filterQuestions() {
+  const q   = document.getElementById('qSearch').value.toLowerCase();
+  const cat = document.getElementById('catFilter').value;
+  const filtered = allQuestions.filter(item =>
+    (!q   || item.question.toLowerCase().includes(q)) &&
+    (!cat || item.category === cat)
+  );
+  renderQuestions(filtered);
+}
+
+// ── Add question ──────────────────────────────────────────
+async function addQuestion() {
+  const question = document.getElementById('addQ').value.trim();
+  const opts     = [0,1,2,3].map(i => document.getElementById('opt' + i).value.trim());
+  const correct  = parseInt(document.querySelector('input[name="correct"]:checked')?.value ?? -1);
+  const category = document.getElementById('addCat').value;
+
+  if (!question)         return toast('❌ Question text is required', 'error');
+  if (opts.some(o=>!o))  return toast('❌ All 4 options are required', 'error');
+  if (correct < 0)       return toast('❌ Select the correct answer', 'error');
+
+  const btn = document.getElementById('addBtn');
+  btn.classList.add('loading'); btn.disabled = true;
+
+  try {
+    const res = await api('/api/questions', {
+      method: 'POST',
+      body: JSON.stringify({ question, options: opts, correct_answer: correct, category })
+    });
+    if (res.success) {
+      toast(`✅ Question #${res.id} added!`, 'success');
+      ['addQ','opt0','opt1','opt2','opt3'].forEach(id => document.getElementById(id).value = '');
+      document.querySelectorAll('input[name="correct"]').forEach(r => r.checked = false);
+    } else {
+      toast('❌ ' + (res.error || 'Failed to add'), 'error');
+    }
+  } catch(e) {
+    toast('❌ Network error', 'error');
+  } finally {
+    btn.classList.remove('loading'); btn.disabled = false;
+  }
+}
+
+// ── Edit ──────────────────────────────────────────────────
+function openEdit(id) {
+  const q = allQuestions.find(x => x.id === id);
+  if (!q) return;
+  editTarget = id;
+  document.getElementById('editId').textContent = '#' + id;
+  document.getElementById('editQ').value = q.question;
+  const opts = q.options || [];
+  [0,1,2,3].forEach(i => document.getElementById('eOpt' + i).value = opts[i] || '');
+  const r = document.querySelector(`input[name="ecorrect"][value="${q.correct_answer}"]`);
+  if (r) r.checked = true;
+  document.getElementById('editModal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('editModal').classList.remove('open');
+  editTarget = null;
+}
+
+async function saveEdit() {
+  if (!editTarget) return;
+  const question = document.getElementById('editQ').value.trim();
+  const opts     = [0,1,2,3].map(i => document.getElementById('eOpt' + i).value.trim());
+  const correct  = parseInt(document.querySelector('input[name="ecorrect"]:checked')?.value ?? 0);
+  if (!question) return toast('❌ Question is required', 'error');
+
+  try {
+    const res = await api(`/api/questions/${editTarget}`, {
+      method: 'PUT',
+      body: JSON.stringify({ question, options: opts, correct_answer: correct })
+    });
+    if (res.success) {
+      toast('✅ Question updated!', 'success');
+      closeModal();
+      loadQuestions();
+    } else {
+      toast('❌ ' + (res.error || 'Failed'), 'error');
+    }
+  } catch(e) {
+    toast('❌ Network error', 'error');
+  }
+}
+
+// ── Delete ────────────────────────────────────────────────
+function openDel(id) {
+  deleteTarget = id;
+  document.getElementById('delId').textContent = '#' + id;
+  document.getElementById('delModal').classList.add('open');
+}
+function closeDelModal() {
+  document.getElementById('delModal').classList.remove('open');
+  deleteTarget = null;
+}
+async function confirmDelete() {
+  if (!deleteTarget) return;
+  try {
+    const res = await api(`/api/questions/${deleteTarget}`, { method: 'DELETE' });
+    if (res.success) {
+      toast(`✅ Question #${deleteTarget} deleted`, 'success');
+      closeDelModal();
+      loadQuestions();
+    } else {
+      toast('❌ ' + (res.error || 'Failed'), 'error');
+    }
+  } catch(e) {
+    toast('❌ Network error', 'error');
+  }
+}
+
+// ── Users ─────────────────────────────────────────────────
+async function loadUsers() {
+  const tbody = document.getElementById('usersTable');
+  tbody.innerHTML = `<tr><td colspan="5" class="empty"><div class="empty-icon">⏳</div>Loading…</td></tr>`;
+  try {
+    const data = await api('/api/users');
+    const users = data.users || [];
+    if (!users.length) {
+      tbody.innerHTML = `<tr><td colspan="5"><div class="empty"><div class="empty-icon">👥</div>No users yet</div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = users.map(u => `<tr>
+      <td><code>${u.user_id}</code></td>
+      <td>${esc(u.name || '—')}</td>
+      <td>${u.username ? '<span class="badge badge-blue">@' + esc(u.username) + '</span>' : '<span style="color:var(--muted)">—</span>'}</td>
+      <td style="font-size:12px;color:var(--muted);">${u.last_seen ? relTime(u.last_seen) : '—'}</td>
+      <td>${u.pm_accessible ? '<span class="badge badge-green">✅</span>' : '<span class="badge badge-red">❌</span>'}</td>
+    </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--red);">❌ Failed to load</td></tr>`;
+  }
+}
+
+// ── Broadcast ─────────────────────────────────────────────
+async function sendBroadcast() {
+  const msg = document.getElementById('bcMsg').value.trim();
+  if (!msg) return toast('❌ Message is empty', 'error');
+  if (!confirm('Send this message to ALL users and groups?')) return;
+
+  const btn = document.getElementById('bcBtn');
+  btn.classList.add('loading'); btn.disabled = true;
+  document.getElementById('bcStatus').textContent = 'Sending…';
+
+  try {
+    const res = await api('/api/broadcast', {
+      method: 'POST',
+      body: JSON.stringify({ message: msg })
+    });
+    toast(`✅ Sent: ${res.sent}, Failed: ${res.failed}`, 'success', 5000);
+    document.getElementById('bcStatus').textContent = `Sent ${res.sent}/${res.total}`;
+  } catch(e) {
+    toast('❌ Broadcast failed', 'error');
+    document.getElementById('bcStatus').textContent = '';
+  } finally {
+    btn.classList.remove('loading'); btn.disabled = false;
+  }
+}
+
+// ── Confirm reload ────────────────────────────────────────
+async function confirmReload() {
+  if (!confirm('Reload questions from MongoDB into bot memory?')) return;
+  try {
+    await api('/api/reload', { method: 'POST' });
+    toast('✅ Bot database reloaded!', 'success');
+    loadMetrics();
+  } catch(e) {
+    toast('❌ Reload failed', 'error');
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function relTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  const diff = Math.floor((Date.now() - d) / 1000);
+  if (diff < 60)    return 'just now';
+  if (diff < 3600)  return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  return Math.floor(diff/86400) + 'd ago';
+}
+
+// Close modals on overlay click
+document.getElementById('editModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+document.getElementById('delModal').addEventListener('click', function(e) {
+  if (e.target === this) closeDelModal();
+});
+
+// ── Init ──────────────────────────────────────────────────
+loadMetrics();
+</script>
+</body>
+</html>
