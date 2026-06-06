@@ -4,10 +4,6 @@ dns.resolver.default_resolver.nameservers = ["8.8.8.8", "8.8.4.4"]
 
 """
 CLAT Vision Quiz Bot — Entry point
-FIX: Flask runs in a background thread, bot.application.run_polling() runs
-     in the main thread as a blocking sync call (PTB v20+ standard pattern).
-     close_loop=False prevents PTB from closing the loop on shutdown so a
-     clean restart via os.execv() works correctly.
 """
 
 import os
@@ -33,8 +29,6 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('telegram').setLevel(logging.INFO)
 
 
-# ── Restart confirmation (sync wrapper) ──────────────────────────────────────
-
 def send_restart_confirmation_sync(config: Config):
     restart_flag_path = "data/.restart_flag"
     if not os.path.exists(restart_flag_path):
@@ -58,15 +52,13 @@ def send_restart_confirmation_sync(config: Config):
         logger.error(f"Restart confirmation failed: {e}")
 
 
-# ── Webhook cleanup (sync wrapper) ───────────────────────────────────────────
-
 def cleanup_webhook_sync(token: str):
     async def _cleanup():
         from telegram import Bot
         from telegram.error import NetworkError, TimedOut
         for attempt in range(3):
             try:
-                bot          = Bot(token=token)
+                bot = Bot(token=token)
                 webhook_info = await bot.get_webhook_info()
                 if webhook_info.url:
                     logger.info(f"⚠️  Found webhook: {webhook_info.url} — deleting…")
@@ -85,24 +77,6 @@ def cleanup_webhook_sync(token: str):
     asyncio.run(_cleanup())
 
 
-# ── Bot setup (sync wrapper) ──────────────────────────────────────────────────
-
-def setup_bot_sync(token: str, quiz_mgr, db_mgr):
-    """Initialize bot application synchronously and return it."""
-    from src.bot.handlers import TelegramQuizBot
-
-    bot = TelegramQuizBot(quiz_mgr, db_manager=db_mgr)
-
-    async def _init():
-        await bot.initialize(token)
-        logger.info("✅ Bot initialized — handlers registered")
-
-    asyncio.run(_init())
-    return bot
-
-
-# ── Main polling runner ───────────────────────────────────────────────────────
-
 def run_polling_mode(config: Config):
     from src.core.database import DatabaseManager
     from src.core.quiz import QuizManager
@@ -110,20 +84,16 @@ def run_polling_mode(config: Config):
 
     logger.info("🚀 Starting in POLLING mode")
 
-    # 1. Clean any existing webhook (uses its own asyncio.run)
     cleanup_webhook_sync(config.telegram_token)
 
-    # 2. Create shared DB + quiz managers
     mongo_url = os.environ.get("MONGODB_URL", "mongodb://localhost:27017")
-    db_mgr    = DatabaseManager(mongo_url=mongo_url)
+    db_mgr = DatabaseManager(mongo_url=mongo_url)
     logger.info("✅ Shared DatabaseManager created")
 
-    quiz_mgr  = QuizManager(db_manager=db_mgr)
+    quiz_mgr = QuizManager(db_manager=db_mgr)
 
-    # 3. Inject into Flask (no second DB connection)
     real_flask = web_app.create_app(injected_db=db_mgr, injected_quiz=quiz_mgr)
 
-    # 4. Flask runs in a background daemon thread
     flask_thread = threading.Thread(
         target=lambda: serve(real_flask, host=config.host, port=config.port, threads=4),
         daemon=True
@@ -132,10 +102,6 @@ def run_polling_mode(config: Config):
     logger.info(f"✅ Flask (Waitress) on {config.host}:{config.port}")
     logger.info(f"   Admin panel: http://localhost:{config.port}/admin")
 
-    # 5. Init bot (uses its own asyncio.run — loop closed after)
-    bot = setup_bot_sync(config.telegram_token, quiz_mgr, db_mgr)
-
-    # 6. Send restart confirmation if flag exists
     send_restart_confirmation_sync(config)
 
     async def _run_all():
@@ -145,14 +111,13 @@ def run_polling_mode(config: Config):
         logger.info("✅ Bot initialized — handlers registered")
         logger.info(f"✅ Questions loaded: {len(quiz_mgr.questions)}")
         logger.info("🎯 Bot is live! Listening for messages… (Ctrl+C to stop)")
-        await bot.application.updater.start_polling(drop_pending_updates=True, allowed_updates=["message", "poll_answer", "callback_query"])
-        await bot.application.start()
-        await asyncio.Event().wait()
+        await bot.application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=["message", "poll_answer", "callback_query"],
+        )
 
     asyncio.run(_run_all())
 
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 config = Config.load(validate=False)
 
