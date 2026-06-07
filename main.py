@@ -126,9 +126,7 @@ def run_polling_mode(config: Config):
         except Exception as e:
             logger.warning(f"Could not pre-load groups: {e}")
 
-        # Start auto-quiz scheduler (every 30 minutes)
         scheduler = AutoQuizScheduler(bot, quiz_mgr, db_manager=db_mgr, interval_minutes=30)
-        scheduler.start()
 
         logger.info("🎯 Bot is live! Listening for messages… (Ctrl+C to stop)")
         async with bot.application:
