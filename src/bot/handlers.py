@@ -39,11 +39,24 @@ class UI:
     THIN  = "─" * 26
     DOT   = "·"
 
-    # ── Progress bar ──────────────────────────────────────────
+    # ── Progress bars ─────────────────────────────────────────
     @staticmethod
     def bar(pct: float, width: int = 10) -> str:
+        """Legacy bar — used for leaderboard entry mini-bars only."""
         filled = max(0, min(width, int(float(pct) / 100 * width)))
         return "█" * filled + "░" * (width - filled)
+
+    @staticmethod
+    def pbar(pct: float, width: int = 10) -> str:
+        """Premium colored progress bar — standard across all user screens."""
+        filled = max(1, min(width, int(float(pct) / 100 * width)))
+        return "🟩" * filled + "⬜" * (width - filled)
+
+    @staticmethod
+    def xpbar(pct: float, width: int = 10) -> str:
+        """Blue XP bar to distinguish from accuracy bar."""
+        filled = max(1, min(width, int(float(pct) / 100 * width)))
+        return "🟦" * filled + "⬜" * (width - filled)
 
     @staticmethod
     def mini_bar(pct: float, width: int = 5) -> str:
@@ -75,14 +88,14 @@ class UI:
 
     @staticmethod
     def xp_bar(score: int) -> str:
-        """Show progress within current level."""
+        """Show progress within current XP level as blue bar."""
         breakpoints = [0, 50, 100, 250, 500, 1000]
         for i, bp in enumerate(breakpoints):
             if score < bp:
                 prev = breakpoints[i - 1] if i > 0 else 0
                 pct  = (score - prev) / (bp - prev) * 100 if bp > prev else 100
-                return UI.mini_bar(pct)
-        return "▰▰▰▰▰"
+                return UI.xpbar(pct)
+        return "🟦" * 10
 
     # ── Medal & ranking display ───────────────────────────────
     MEDALS = ["🥇", "🥈", "🥉"] + ["🏅"] * 20
@@ -376,8 +389,7 @@ class TelegramQuizBot:
         rank_pos        = self._get_user_rank_position(user.id)
         rank_line       = f"#{rank_pos} Global" if rank_pos else "Not Ranked Yet"
 
-        filled   = max(1, int(float(rate) / 10))
-        prog_bar = "🟩" * filled + "⬜" * (10 - filled)
+        prog_bar = UI.pbar(rate)
         streak_d = f"{streak} Days" if streak > 0 else "0 Days"
 
         if is_pm:
@@ -446,48 +458,46 @@ class TelegramQuizBot:
         is_pm = update.effective_chat.type == "private"
 
         text = (
-            f"📖 <b>COMMAND CENTER</b>\n"
-            f"{UI.LINE}\n\n"
+            f"🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Command Guide\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-            f"<b>QUIZ</b>\n"
-            f"  ◈ /quiz — Random question\n"
-            f"  ◈ /quiz [topic] — By category\n"
-            f"     <code>legal · english · gk · polity</code>\n"
-            f"     <code>reasoning · history · current</code>\n"
-            f"  ◈ /q — Quick shortcut\n\n"
+            f"🎯  <b>𝐐𝐔𝐈𝐙  𝐂𝐄𝐍𝐓𝐄𝐑</b>\n"
+            f"  ◈  /quiz              Start a quiz\n"
+            f"  ◈  /quiz [topic]  Quiz by subject\n"
+            f"  ◈  /q                  Quick shortcut\n\n"
+            f"  📚  <i>Topics:</i>  <code>legal · english · gk</code>\n"
+            f"  <code>          polity · history · reasoning</code>\n\n"
 
-            f"<b>YOUR PROFILE</b>\n"
-            f"  ◈ /score — Scorecard + rank\n"
-            f"  ◈ /stats — Full performance analytics\n"
-            f"  ◈ /leaderboard — Global rankings\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-            f"<b>BOT ANALYTICS</b>\n"
-            f"  ◈ /botstats — Daily · weekly · all-time\n\n"
+            f"📊  <b>𝐏𝐑𝐎𝐆𝐑𝐄𝐒𝐒  𝐂𝐄𝐍𝐓𝐄𝐑</b>\n"
+            f"  ◈  /score          Scorecard &amp; rank\n"
+            f"  ◈  /stats          Full analytics\n\n"
 
-            f"<b>SYSTEM</b>\n"
-            f"  ◈ /ping — Connection & latency\n"
-            f"  ◈ /info — Bot & chat information\n\n"
+            f"🏆  <b>𝐂𝐎𝐌𝐏𝐄𝐓𝐈𝐓𝐈𝐎𝐍</b>\n"
+            f"  ◈  /leaderboard  Global rankings\n\n"
 
-            f"{UI.THIN}\n"
-            f"<b>ADMIN</b>  <i>· Owner &amp; Developers only</i>\n"
-            f"  ◈ /addquiz — Add a question\n"
-            f"  ◈ /delquiz — Delete question\n"
-            f"  ◈ /editquiz — Manage questions\n"
-            f"  ◈ /importquiz — Bulk import (.txt)\n"
-            f"  ◈ /broadcast — Message all users\n"
-            f"  ◈ /reload — Sync from database\n"
-            f"  ◈ /restart — Restart bot\n"
-            f"  ◈ /dev — Developer control panel\n"
-            f"  ◈ /devstats — Analytics dashboard\n\n"
+            f"🔧  <b>𝐒𝐘𝐒𝐓𝐄𝐌</b>\n"
+            f"  ◈  /ping            Latency check\n"
+            f"  ◈  /info            Bot information\n\n"
 
-            f"{UI.LINE}\n"
-            f"  ⚡ {COMMUNITY}  ·  CLAT 2027"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+            f"👑  <b>𝐀𝐃𝐌𝐈𝐍  𝐂𝐄𝐍𝐓𝐄𝐑</b>  <i>· Owner &amp; Devs</i>\n"
+            f"  ◈  /addquiz  /delquiz  /editquiz\n"
+            f"  ◈  /importquiz  /broadcast  /reload\n"
+            f"  ◈  /restart  /dev  /devstats\n\n"
+
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
         )
 
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🟢 Play Quiz",   callback_data="play_quiz"),
-            InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard"),
-        ]])
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎯 Start Quiz",   callback_data="play_quiz"),
+             InlineKeyboardButton("📊 My Stats",     callback_data="my_stats")],
+            [InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard"),
+             InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
+        ])
         await self._reply(update, text, reply_markup=kb)
 
     # ─── /ping ───────────────────────────────────────────────
@@ -701,34 +711,37 @@ class TelegramQuizBot:
         rank_pos        = self._get_user_rank_position(user.id)
         pos_text        = f"#{rank_pos}" if rank_pos else "—"
 
+        acc_pbar = UI.pbar(rate)
+
         text = (
-            f"🏆 <b>SCORECARD</b>\n"
-            f"{UI.LINE}\n\n"
+            f"🏆  <b>𝐒𝐂𝐎𝐑𝐄𝐂𝐀𝐑𝐃</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"  {mention}\n\n"
-            f"<b>RANK &amp; LEVEL</b>\n"
-            f"{UI.THIN}\n"
-            f"  Tier     ›  {rank_txt}\n"
-            f"  Grade    ›  <b>{grade}</b>\n"
-            f"  Level    ›  <b>{level_txt}</b>\n"
-            f"  Position ›  <b>{pos_text} Global</b>\n\n"
-            f"<b>PERFORMANCE</b>\n"
-            f"{UI.THIN}\n"
-            f"  Correct  ›  <b>{score}</b>\n"
-            f"  Wrong    ›  <b>{wrong}</b>\n"
-            f"  Total    ›  <b>{total}</b>\n"
-            f"  Accuracy ›  <b>{rate}%</b>  [{acc_bar}]\n\n"
-            f"<b>STREAK</b>\n"
-            f"{UI.THIN}\n"
-            f"  Current  ›  {UI.streak_display(streak)}\n"
-            f"  Best     ›  <b>{best} days</b>\n"
-            f"  Today    ›  <b>{today}</b> questions\n\n"
-            f"{UI.LINE}\n"
-            f"  <i>Consistency wins CLAT. Keep going! 💪</i>"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  🎖  <b>Rank</b>       ›  {rank_txt}  <i>({grade})</i>\n"
+            f"│  📈  <b>Level</b>      ›  {level_txt}\n"
+            f"│  🌍  <b>Position</b>  ›  <b>{pos_text} Global</b>\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📊  <b>𝐏𝐄𝐑𝐅𝐎𝐑𝐌𝐀𝐍𝐂𝐄</b>\n\n"
+            f"  ✅  <b>Correct</b>    ›  <b>{score}</b>\n"
+            f"  ❌  <b>Wrong</b>      ›  <b>{wrong}</b>\n"
+            f"  📝  <b>Total</b>      ›  <b>{total}</b>\n"
+            f"  🎯  <b>Accuracy</b>  ›  <b>{rate}%</b>\n\n"
+            f"  {acc_pbar}  <b>{rate}%</b>\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🔥  <b>𝐒𝐓𝐑𝐄𝐀𝐊𝐒</b>\n\n"
+            f"  ◈  <b>Current</b>  ›  {UI.streak_display(streak)}\n"
+            f"  ◈  <b>Best</b>     ›  <b>{best} days</b>\n"
+            f"  ◈  <b>Today</b>    ›  <b>{today}</b> questions\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  <i>Every correct answer brings you closer to CLAT! 🎯</i>"
         )
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Play Quiz",   callback_data="play_quiz"),
-             InlineKeyboardButton("🔵 Full Stats",  callback_data="my_stats")],
-            [InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
+            [InlineKeyboardButton("🎯 Play Quiz",    callback_data="play_quiz"),
+             InlineKeyboardButton("📊 Full Stats",   callback_data="my_stats")],
+            [InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard"),
+             InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
         ])
         await self._reply(update, text, reply_markup=kb)
 
@@ -760,43 +773,49 @@ class TelegramQuizBot:
         rank_pos        = self._get_user_rank_position(user.id)
         pos_text        = f"#{rank_pos}" if rank_pos else "Unranked"
 
-        # Weekly activity bar (vs target of 50/week)
-        w_pct  = min(100, week / 50 * 100)
-        w_bar  = UI.bar(w_pct)
+        w_pct    = min(100, week / 50 * 100) if week else 0
+        w_pbar   = UI.pbar(w_pct)
+        acc_pbar = UI.pbar(rate)
 
         text = (
-            f"📈 <b>PERFORMANCE ANALYTICS</b>\n"
-            f"{UI.LINE}\n\n"
+            f"📈  <b>𝐏𝐄𝐑𝐅𝐎𝐑𝐌𝐀𝐍𝐂𝐄  𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"  {mention}\n\n"
-            f"<b>RANK &amp; PROGRESSION</b>\n"
-            f"{UI.THIN}\n"
-            f"  Tier     ›  {rank_txt}  <i>({grade})</i>\n"
-            f"  Level    ›  <b>{level_txt}</b>\n"
-            f"  Progress ›  [{xp_bar}]\n"
-            f"  Position ›  <b>{pos_text} Global</b>\n\n"
-            f"<b>ACCURACY</b>\n"
-            f"{UI.THIN}\n"
-            f"  Rate    ›  <b>{rate}%</b>  [{acc_bar}]\n"
-            f"  Correct ›  <b>{score}</b>   Wrong ›  <b>{wrong}</b>\n"
-            f"  Total   ›  <b>{total}</b>\n\n"
-            f"<b>STREAKS</b>\n"
-            f"{UI.THIN}\n"
-            f"  Current ›  {UI.streak_display(streak)}\n"
-            f"  Best    ›  <b>{best} days</b>\n\n"
-            f"<b>ACTIVITY</b>\n"
-            f"{UI.THIN}\n"
-            f"  Today   ›  <b>{today}</b> questions\n"
-            f"  Week    ›  <b>{week}</b>  [{w_bar}]\n"
-            f"  Month   ›  <b>{month}</b>\n\n"
-            f"{UI.LINE}\n"
-            f"  <i>Aim for 20+ questions daily!</i>"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  🎖  <b>Rank</b>       ›  {rank_txt}  <i>({grade})</i>\n"
+            f"│  📈  <b>Level</b>      ›  {level_txt}\n"
+            f"│  🌍  <b>Position</b>  ›  <b>{pos_text} Global</b>\n"
+            f"╰──────────────────────────────────────╯\n"
+            f"  <i>XP Progress</i>  {xp_bar}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🎯  <b>𝐀𝐂𝐂𝐔𝐑𝐀𝐂𝐘</b>\n\n"
+            f"  ✅  <b>Correct</b>    ›  <b>{score}</b>\n"
+            f"  ❌  <b>Wrong</b>      ›  <b>{wrong}</b>\n"
+            f"  📝  <b>Total</b>      ›  <b>{total}</b>\n"
+            f"  🎯  <b>Accuracy</b>  ›  <b>{rate}%</b>\n\n"
+            f"  {acc_pbar}  <b>{rate}%</b>\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🔥  <b>𝐒𝐓𝐑𝐄𝐀𝐊𝐒</b>\n\n"
+            f"  ◈  <b>Current</b>  ›  {UI.streak_display(streak)}\n"
+            f"  ◈  <b>Best</b>     ›  <b>{best} days</b>\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📅  <b>𝐀𝐂𝐓𝐈𝐕𝐈𝐓𝐘</b>\n\n"
+            f"  ◈  <b>Today</b>   ›  <b>{today}</b> questions\n"
+            f"  ◈  <b>Week</b>    ›  <b>{week}</b>  / 50 target\n"
+            f"  {w_pbar}  <b>{int(w_pct)}%</b> weekly goal\n"
+            f"  ◈  <b>Month</b>   ›  <b>{month}</b> questions\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  <i>Target: 20+ questions daily to ace CLAT! 🎓</i>"
         )
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🟢 Play Quiz",   callback_data="play_quiz"),
-            InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard"),
-        ]])
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎯 Play Quiz",    callback_data="play_quiz"),
+             InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard")],
+            [InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
+        ])
         if msg:
-            await self._edit(msg, text, kb)
+            ok = await self._edit(msg, text, kb)
+            if not ok:
+                await self._reply(update, text, reply_markup=kb)
         else:
             await self._reply(update, text, reply_markup=kb)
 
@@ -974,8 +993,8 @@ class TelegramQuizBot:
 
         if not lb:
             text = (
-                f"🏆 <b>LEADERBOARD</b>\n"
-                f"{UI.LINE}\n\n"
+                f"🏆  <b>𝐋𝐄𝐀𝐃𝐄𝐑𝐁𝐎𝐀𝐑𝐃</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 "  No scores yet — be the first! 🥇\n\n"
                 "  Use /quiz to start playing."
             )
@@ -985,8 +1004,7 @@ class TelegramQuizBot:
                 await self._edit(wait_msg, text)
             return
 
-        top_score = lb[0].get("correct_answers", lb[0].get("score", 1)) or 1
-        lines = [f"{title}\n{UI.LINE}\n"]
+        lines = [f"{title}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"]
 
         for i, entry in enumerate(lb[:10]):
             uid   = entry.get("user_id")
@@ -994,7 +1012,6 @@ class TelegramQuizBot:
             acc   = entry.get("accuracy", 0)
             pos   = i + 1
 
-            # Resolve display name
             display = f"User {str(uid)[-4:]}"
             if uid == OWNER_ID:
                 display = OWNER_NAME
@@ -1003,51 +1020,47 @@ class TelegramQuizBot:
                     doc = self.db.users_col.find_one(
                         {"user_id": uid}, {"name": 1, "username": 1})
                     if doc:
-                        display = (doc.get("name") or doc.get("username") or display)[:22]
+                        display = (doc.get("name") or doc.get("username") or display)[:20]
                 except Exception:
                     pass
 
-            mention  = UI.mention(uid, display)
-            fill     = max(0, min(10, int(score / top_score * 10)))
-            bar      = "█" * fill + "░" * (10 - fill)
+            mention = UI.mention(uid, display)
 
-            if pos <= 3:
-                medal = UI.MEDALS[i]
-                lines.append(
-                    f"{medal}  {mention}\n"
-                    f"    [{bar}]  <b>{score} pts</b>  <i>{acc}% acc</i>"
-                )
+            if pos == 1:
+                lines.append(f"\n🥇  {mention}\n     ▸  <b>{score} correct</b>  ·  <i>{acc}% accuracy</i>")
+            elif pos == 2:
+                lines.append(f"\n🥈  {mention}\n     ▸  <b>{score} correct</b>  ·  <i>{acc}% accuracy</i>")
+            elif pos == 3:
+                lines.append(f"\n🥉  {mention}\n     ▸  <b>{score} correct</b>  ·  <i>{acc}% accuracy</i>")
             else:
-                lines.append(
-                    f"  <b>{pos:2d}.</b>  {mention}  —  <b>{score}</b>  <i>{acc}%</i>"
-                )
+                lines.append(f"\n  <b>{pos}.</b>  {mention}  ·  <b>{score} pts</b>  <i>{acc}%</i>")
 
         if footer:
-            lines.append(f"\n{UI.THIN}{footer}")
+            lines.append(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{footer}")
 
-        lines.append(f"\n{UI.LINE}\n  <i>Play /quiz to climb the ranks!</i>")
+        lines.append(f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  <i>Play /quiz to climb the ranks! 🚀</i>")
         text = "\n".join(lines)
 
-        # Leaderboard tab buttons
+        # Leaderboard tab buttons — semantic colors
         if is_group or mode == "group":
             kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("🟢 Play Quiz", callback_data="play_quiz"),
-                InlineKeyboardButton("🔵 My Stats",  callback_data="my_stats"),
+                InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
+                InlineKeyboardButton("📊 My Stats",  callback_data="my_stats"),
             ]])
         else:
             global_btn  = InlineKeyboardButton(
-                "🔴 Global ✓" if mode == "global"  else "🌍 Global",
+                "🌍 Global ✦" if mode == "global"  else "🌍 Global",
                 callback_data="lb_global")
             weekly_btn  = InlineKeyboardButton(
-                "🟡 Weekly ✓" if mode == "weekly"  else "🟡 Weekly",
+                "📅 Weekly ✦" if mode == "weekly"  else "📅 Weekly",
                 callback_data="lb_weekly")
             monthly_btn = InlineKeyboardButton(
-                "🔵 Monthly ✓" if mode == "monthly" else "🔵 Monthly",
+                "🗓 Monthly ✦" if mode == "monthly" else "🗓 Monthly",
                 callback_data="lb_monthly")
             kb = InlineKeyboardMarkup([
                 [global_btn, weekly_btn, monthly_btn],
-                [InlineKeyboardButton("🟢 Play Quiz", callback_data="play_quiz"),
-                 InlineKeyboardButton("🔵 My Stats",  callback_data="my_stats")],
+                [InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
+                 InlineKeyboardButton("📊 My Stats",  callback_data="my_stats")],
             ])
 
         if edit_msg:
