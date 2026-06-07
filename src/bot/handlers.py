@@ -107,16 +107,43 @@ class UI:
 
     # ── Category system ───────────────────────────────────────
     CATS = {
-        "legal":     ("⚖️",  "Legal Reasoning"),
-        "english":   ("📖",  "English"),
-        "gk":        ("🌐",  "General Knowledge"),
-        "current":   ("📰",  "Current Affairs"),
-        "polity":    ("🏛️",  "Polity"),
-        "math":      ("🔢",  "Mathematics"),
-        "reasoning": ("🧠",  "Logical Reasoning"),
-        "history":   ("📜",  "History"),
-        "default":   ("📚",  "General"),
+        "gk":          ("🌍",  "General Knowledge"),
+        "current":     ("📰",  "Current Affairs"),
+        "static":      ("📚",  "Static GK"),
+        "science":     ("🔬",  "Science & Technology"),
+        "history":     ("📜",  "History"),
+        "geography":   ("🗺",  "Geography"),
+        "economics":   ("💰",  "Economics"),
+        "polity":      ("🏛️",  "Political Science"),
+        "political":   ("🏛️",  "Political Science"),
+        "constitution":("⚖️",  "Constitution & Law"),
+        "legal":       ("⚖️",  "Constitution & Law"),
+        "arts":        ("🎭",  "Arts & Literature"),
+        "literature":  ("🎭",  "Arts & Literature"),
+        "sports":      ("🎮",  "Sports & Games"),
+        "english":     ("📖",  "English Language"),
+        "math":        ("🔢",  "Mathematics"),
+        "reasoning":   ("🧠",  "Logical Reasoning"),
+        "default":     ("📚",  "General"),
     }
+
+    # Ordered display list for /categories screen
+    CATS_DISPLAY = [
+        ("🌍", "General Knowledge",    "gk"),
+        ("📰", "Current Affairs",      "current"),
+        ("📚", "Static GK",            "static"),
+        ("🔬", "Science & Technology", "science"),
+        ("📜", "History",              "history"),
+        ("🗺", "Geography",            "geography"),
+        ("💰", "Economics",            "economics"),
+        ("🏛️", "Political Science",    "polity"),
+        ("⚖️",  "Constitution & Law",  "constitution"),
+        ("🎭", "Arts & Literature",    "arts"),
+        ("🎮", "Sports & Games",       "sports"),
+        ("📖", "English Language",     "english"),
+        ("🧠", "Logical Reasoning",    "reasoning"),
+        ("🔢", "Mathematics",          "math"),
+    ]
 
     @staticmethod
     def cat_emoji(cat: str) -> str:
@@ -232,6 +259,7 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("leaderboard",  self.cmd_leaderboard))
         app.add_handler(CommandHandler("lb",           self.cmd_leaderboard))
         app.add_handler(CommandHandler("achievements", self.cmd_achievements))
+        app.add_handler(CommandHandler("categories",   self.cmd_categories))
         app.add_handler(CommandHandler("ping",        self.cmd_ping))
         app.add_handler(CommandHandler("info",        self.cmd_info))
 
@@ -490,9 +518,8 @@ class TelegramQuizBot:
             f"│  /quiz              ›  Start a quiz\n"
             f"│  /quiz [topic]  ›  Quiz by subject\n"
             f"│  /q                  ›  Quick shortcut\n"
-            f"╰──────────────────────────────────────────╯\n"
-            f"  📚  <i>Topics:</i>  <code>legal  ·  english  ·  gk</code>\n"
-            f"  <code>           polity  ·  history  ·  reasoning</code>\n\n"
+            f"│  /categories      ›  Browse all topics\n"
+            f"╰──────────────────────────────────────────╯\n\n"
 
             f"📊  <b>𝐏𝐑𝐎𝐆𝐑𝐄𝐒𝐒  𝐂𝐄𝐍𝐓𝐄𝐑</b>\n"
             f"╭──────────────────────────────────────────╮\n"
@@ -531,27 +558,27 @@ class TelegramQuizBot:
 
     async def cmd_ping(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         t0  = time.time()
-        msg = await self._reply(update, "🏓 <i>Measuring latency...</i>")
+        msg = await self._reply(update, "🏓 <i>Pinging...</i>")
         ms  = int((time.time() - t0) * 1000)
         if not msg:
             return
 
         q_count = len(self.quiz_manager.questions)
-        bar     = UI.bar(min(100, ms / 10))
-        if   ms < 100: status = "⚡ Blazing fast"
-        elif ms < 300: status = "✅ Fast"
-        elif ms < 600: status = "🟡 Normal"
-        else:          status = "🔴 Slow"
+        if   ms < 100: status = "⚡ Blazing fast";  dot = "🟢"
+        elif ms < 300: status = "✅ Fast";            dot = "🟢"
+        elif ms < 600: status = "🟡 Normal";          dot = "🟡"
+        else:          status = "🔴 Slow";            dot = "🔴"
 
         text = (
-            f"🏓 <b>PONG</b>\n"
-            f"{UI.LINE}\n\n"
-            f"  Latency   ›  <code>{ms} ms</code>\n"
-            f"  [{bar}]\n"
-            f"  Status    ›  <b>{status}</b>\n\n"
-            f"  Questions ›  <b>{q_count}</b> loaded\n"
-            f"  Bot       ›  🟢 Online\n\n"
-            f"{UI.LINE}\n"
+            f"🏓  <b>𝐏𝐎𝐍𝐆</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  ⏱  Latency    ›  <code>{ms} ms</code>\n"
+            f"│  {dot}  Status     ›  <b>{status}</b>\n"
+            f"│  📚  Questions  ›  <b>{q_count}</b> loaded\n"
+            f"│  🤖  Bot         ›  🟢 Online\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"  <i>CLAT Vision Quiz Bot</i>"
         )
         await self._edit(msg, text)
@@ -564,26 +591,64 @@ class TelegramQuizBot:
         q_count   = len(self.quiz_manager.questions)
         is_forum  = getattr(chat, "is_forum", False)
 
+        chat_type = {"private": "DM", "group": "Group",
+                     "supergroup": "Supergroup", "channel": "Channel"}.get(chat.type, chat.type)
+
         text = (
-            f"ℹ️ <b>BOT INFORMATION</b>\n"
-            f"{UI.LINE}\n\n"
-            f"<b>BOT</b>\n"
-            f"  Name      ›  CLAT Vision Quiz Bot\n"
-            f"  Questions ›  <b>{q_count}</b>\n"
-            f"  Database  ›  MongoDB Atlas ✅\n"
-            f"  Owner     ›  {OWNER_NAME}\n\n"
-            f"<b>THIS CHAT</b>\n"
-            f"  ID    ›  <code>{chat.id}</code>\n"
-            f"  Type  ›  <code>{chat.type}</code>\n"
-            f"  Forum ›  <code>{is_forum}</code>\n"
+            f"ℹ️  <b>𝐁𝐎𝐓  𝐈𝐍𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🤖  <b>𝐁𝐎𝐓</b>\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  📛  Name        ›  CLAT Vision Quiz Bot\n"
+            f"│  📚  Questions   ›  <b>{q_count}</b>\n"
+            f"│  🗄  Database    ›  MongoDB Atlas  ✅\n"
+            f"│  👑  Owner       ›  {OWNER_NAME}\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"💬  <b>𝐓𝐇𝐈𝐒  𝐂𝐇𝐀𝐓</b>\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  🆔  Chat ID    ›  <code>{chat.id}</code>\n"
+            f"│  📌  Type       ›  <b>{chat_type}</b>\n"
         )
+        if is_forum:
+            text += f"│  📂  Forum     ›  Yes\n"
         if thread_id:
-            text += f"  Topic ›  <code>{thread_id}</code>\n"
+            text += f"│  🧵  Topic ID  ›  <code>{thread_id}</code>\n"
         text += (
-            f"\n{UI.LINE}\n"
-            f"  ⚡ {COMMUNITY}  ·  CLAT 2027"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
         )
-        await self._reply(update, text)
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🎯 Start Quiz", callback_data="play_quiz"),
+            InlineKeyboardButton("🏠 Home",        callback_data="back_start"),
+        ]])
+        await self._reply(update, text, reply_markup=kb)
+
+    # ─── /categories ─────────────────────────────────────────
+
+    async def cmd_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        lines = [
+            f"╔══════════════════════════════════════════╗\n"
+            f"║      📚  <b>𝐕𝐈𝐄𝐖  𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐄𝐒</b>              ║\n"
+            f"╚══════════════════════════════════════════╝\n\n"
+            f"📑  <b>𝐀𝐕𝐀𝐈𝐋𝐀𝐁𝐋𝐄  𝐐𝐔𝐈𝐙  𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐄𝐒</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        ]
+        for emoji, name, key in UI.CATS_DISPLAY:
+            lines.append(f"  {emoji}  {name}  ›  <code>/quiz {key}</code>\n")
+
+        lines.append(
+            f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  🎯  Stay tuned! More categories coming soon!\n"
+            f"  🛠  Need help?  Use /help for all commands"
+        )
+        text = "".join(lines)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎯 Start Quiz",   callback_data="play_quiz"),
+             InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard")],
+            [InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
+        ])
+        await self._reply(update, text, reply_markup=kb)
 
     # ─── /quiz ───────────────────────────────────────────────
 
@@ -1053,12 +1118,16 @@ class TelegramQuizBot:
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"  <i>⚡ {COMMUNITY}  ·  CLAT Vision Analytics</i>"
         )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📈 Dev Stats",  callback_data="devstats_prompt"),
+             InlineKeyboardButton("🏠 Home",        callback_data="back_start")],
+        ])
         if msg:
-            ok = await self._edit(msg, text)
+            ok = await self._edit(msg, text, kb)
             if not ok:
-                await self._reply(update, text)
+                await self._reply(update, text, reply_markup=kb)
         else:
-            await self._reply(update, text)
+            await self._reply(update, text, reply_markup=kb)
 
     # ─── /leaderboard ────────────────────────────────────────
 
@@ -1158,10 +1227,11 @@ class TelegramQuizBot:
 
         # Leaderboard tab buttons — semantic colors
         if is_group or mode == "group":
-            kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
-                InlineKeyboardButton("📊 My Stats",  callback_data="my_stats"),
-            ]])
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
+                 InlineKeyboardButton("📊 My Stats",  callback_data="my_stats")],
+                [InlineKeyboardButton("🏠 Home",       callback_data="back_start")],
+            ])
         else:
             global_btn  = InlineKeyboardButton(
                 "🌍 Global ✦" if mode == "global"  else "🌍 Global",
@@ -1176,6 +1246,7 @@ class TelegramQuizBot:
                 [global_btn, weekly_btn, monthly_btn],
                 [InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
                  InlineKeyboardButton("📊 My Stats",  callback_data="my_stats")],
+                [InlineKeyboardButton("🏠 Home",       callback_data="back_start")],
             ])
 
         if edit_msg:
@@ -1964,3 +2035,9 @@ class TelegramQuizBot:
                 f"Alias: <code>/bc</code>",
                 parse_mode=ParseMode.HTML
             )
+
+        elif data == "categories":
+            await self.cmd_categories(update, context)
+
+        elif data == "devstats_prompt":
+            await self.cmd_botstats(update, context)
