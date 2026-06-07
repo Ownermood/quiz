@@ -339,18 +339,20 @@ class TelegramQuizBot:
         mention = UI.mention(user.id, name)
         is_pm   = update.effective_chat.type == "private"
 
-        # Smooth reveal animation (PM only)
+        # Emoji reveal animation (PM only)
         if is_pm:
-            msg = await self._reply(update, "🌟")
-            await asyncio.sleep(0.3)
-            await self._edit(msg, "🎓  <b>CLAT VISION</b>  🎓")
-            await asyncio.sleep(0.35)
+            msg = await self._reply(update, "⭐")
+            await asyncio.sleep(0.28)
+            await self._edit(msg, "🌟  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  🌟")
+            await asyncio.sleep(0.32)
             await self._edit(msg,
-                "🎓  <b>CLAT VISION</b>  🎓\n\n"
-                "      <i>Quiz Academy</i>  ✨\n\n"
-                "  ✦ <i>Opening your dashboard…</i> ✦"
+                "╔══════════════════════════╗\n"
+                "║  🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓  ║\n"
+                "║   ✦  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐀𝐃𝐄𝐌𝐘</b>  ✦   ║\n"
+                "╚══════════════════════════╝\n\n"
+                "  ✦ <i>Loading your dashboard…</i> ✦"
             )
-            await asyncio.sleep(0.45)
+            await asyncio.sleep(0.48)
         else:
             msg = None
 
@@ -362,39 +364,48 @@ class TelegramQuizBot:
         streak  = stats.get("current_streak", 0)
         rate    = stats.get("success_rate", 0)
         total_q = stats.get("total_quizzes", 0)
+        correct = stats.get("correct_answers", 0)
+        wrong   = max(0, total_q - correct)
 
         rank_txt, grade = UI.rank(score)
         level_txt       = UI.level(score)
         rank_pos        = self._get_user_rank_position(user.id)
-        acc_bar         = UI.bar(rate, width=10)
         streak_text     = UI.streak_display(streak)
-        rank_line       = f"#{rank_pos} Global" if rank_pos else "Unranked"
+        rank_line       = f"#{rank_pos} Global" if rank_pos else "Not Ranked Yet"
+
+        filled   = int(rate / 10)
+        prog_bar = "▰" * filled + "▱" * (10 - filled)
 
         if is_pm:
             text = (
-                f"✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦\n\n"
-                f"  🎓  <b>𝗖𝗟𝗔𝗧  𝗩𝗜𝗦𝗜𝗢𝗡</b>\n"
-                f"        <i>𝑸𝒖𝒊𝒛  𝑨𝒄𝒂𝒅𝒆𝒎𝒚</i>  ✨\n\n"
-                f"✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦\n\n"
-                f"  𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒃𝒂𝒄𝒌,  {mention}! 👋\n"
-                f"  <i>Your CLAT 2027 journey awaits…</i>\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"  🏅  <b>Rank</b>        {rank_txt} <i>({grade})</i>\n"
-                f"  🗺  <b>Position</b>    <b>{rank_line}</b>\n"
-                f"  ⚡  <b>Level</b>       <b>{level_txt}</b>\n"
-                f"  🎯  <b>Score</b>       <b>{score}</b> correct\n"
-                f"  🔥  <b>Streak</b>      {streak_text}\n"
-                f"  📊  <b>Accuracy</b>    <b>{rate}%</b>  [{acc_bar}]\n"
-                f"  📝  <b>Played</b>      <b>{total_q}</b> questions\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"  📚  <b>{UI.fmt_num(q_count)}</b> questions in the bank\n\n"
+                f"╔══════════════════════════════╗\n"
+                f"║   🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓      ║\n"
+                f"║    ✦  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐀𝐃𝐄𝐌𝐘</b>  ✦     ║\n"
+                f"╚══════════════════════════════╝\n\n"
+                f"🌟  <b>Welcome Back,</b>  {mention}  🌟\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🏆  <b>𝐏𝐑𝐎𝐅𝐈𝐋𝐄  𝐃𝐀𝐒𝐇𝐁𝐎𝐀𝐑𝐃</b>\n\n"
+                f"╭──────────────────────────────╮\n"
+                f"│  🎖  <b>Rank</b>       :  {rank_txt} • {grade}\n"
+                f"│  🌍  <b>Position</b>  :  {rank_line}\n"
+                f"│  📈  <b>Level</b>      :  {level_txt}\n"
+                f"│  🔥  <b>Streak</b>    :  {streak_text}\n"
+                f"│  🎯  <b>Accuracy</b>  :  {rate}%\n"
+                f"╰──────────────────────────────╯\n\n"
+                f"  {prog_bar}  <b>{rate}%</b>  Progress\n\n"
+                f"📊  <b>Stats</b>\n"
+                f"  ✅  <b>Correct</b>          :  <b>{correct}</b>\n"
+                f"  ❌  <b>Wrong</b>            :  <b>{wrong}</b>\n"
+                f"  📚  <b>Quizzes Played</b>  :  <b>{total_q}</b>\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"  ⚜  <i>Train  •  Practice  •  Dominate</i>  ⚜\n\n"
                 f"  ⚡ {COMMUNITY}  ·  <b>CLAT 2027</b>"
             )
         else:
             text = (
-                f"🎓 <b>CLAT VISION</b>  ·  Quiz Academy\n\n"
-                f"  𝑾𝒆𝒍𝒄𝒐𝒎𝒆,  {mention}! 👋\n"
-                f"  <i>Use /quiz to start practising!</i>"
+                f"🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Quiz Academy\n\n"
+                f"🌟  <b>Welcome,</b>  {mention}!\n"
+                f"<i>Use /quiz to start practising!</i>"
             )
 
         kb = InlineKeyboardMarkup([
