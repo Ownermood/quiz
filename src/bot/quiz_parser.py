@@ -30,13 +30,23 @@ _ANS_RE = re.compile(
     r"^(?:answer|ans(?:wer)?|correct(?:\s+answer)?|key|solution|right)\s*[:\-\.>]?\s*[\(\[]?([A-Da-d1-4])[\)\]]?",
     re.IGNORECASE
 )
+# Same but without ^ anchor — for searching within a longer line.
+# \b prevents matching 'ans' inside words like 'means'.
+# Separator [:\-.>] is required (not optional) to avoid matching
+# 'correct B)' inside option text.
+_ANS_INLINE_RE = re.compile(
+    r"\b(?:answer|ans(?:wer)?|correct\s+answer|key|solution)\s*[:\-\.>]\s*[\(\[]?([A-Da-d1-4])[\)\]]?",
+    re.IGNORECASE
+)
 
-# Inline 4-option on same line
+# Inline 4-option on same line.
+# Bracket/paren is required after the letter ([\)\]\.]) to avoid matching
+# lone letters like the 'a' in "is a ___" as an option label.
 _INLINE4 = re.compile(
-    r"[\(\[]?[Aa][\)\]]?[\s\.:]+(.+?)\s+"
-    r"[\(\[]?[Bb][\)\]]?[\s\.:]+(.+?)\s+"
-    r"[\(\[]?[Cc][\)\]]?[\s\.:]+(.+?)\s+"
-    r"[\(\[]?[Dd][\)\]]?[\s\.:]+(.+?)\s*$"
+    r"(?:^|(?<=\s))[\(\[]?[Aa][\)\]\.][\s]+(.+?)\s+"
+    r"[\(\[]?[Bb][\)\]\.][\s]+(.+?)\s+"
+    r"[\(\[]?[Cc][\)\]\.][\s]+(.+?)\s+"
+    r"[\(\[]?[Dd][\)\]\.][\s]+(.+?)\s*$"
 )
 
 # Correct marker inline: trailing * or [correct]
@@ -150,7 +160,7 @@ class SmartQuizParser:
 
     def _parse_block(self, lines: List[str]) -> Optional[Dict]:
         lines = [l.strip() for l in lines if l.strip()]
-        if len(lines) < 3:
+        if not lines:
             return None
 
         # Try each strategy in order
@@ -266,6 +276,15 @@ class SmartQuizParser:
 
     def _s_inline_opts(self, lines: List[str]) -> Optional[Dict]:
         full = " ".join(lines)
+
+        # Strip trailing "Answer: X" before running _INLINE4 so it doesn't
+        # get swallowed into option D's capture group.
+        correct = None
+        ans_m = _ANS_INLINE_RE.search(full)
+        if ans_m:
+            correct = _label_to_idx(ans_m.group(1))
+            full = full[:ans_m.start()].rstrip()
+
         m = _INLINE4.search(full)
         if not m:
             return None
@@ -275,9 +294,12 @@ class SmartQuizParser:
             return None
 
         options = [m.group(i).strip() for i in range(1, 5)]
-        rest    = full[m.end():]
-        ans_m   = _ANS_RE.search(rest)
-        correct = _label_to_idx(ans_m.group(1)) if ans_m else None
+
+        # Fallback: if answer wasn't found before the options, check after
+        if correct is None:
+            rest  = full[m.end():]
+            ans_m = _ANS_INLINE_RE.search(rest)
+            correct = _label_to_idx(ans_m.group(1)) if ans_m else None
 
         if correct is None:
             return None
