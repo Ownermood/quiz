@@ -1071,9 +1071,9 @@ class DeveloperCommands:
         try:
             if not await self.check_access(update):
                 await self.send_unauthorized_message(update)
-            
-            if not update.effective_user or not update.effective_chat or not update.message:
                 return
+
+            if not update.effective_user or not update.effective_chat or not update.message:
                 return
             
             # Determine media type and recipient counts for logging (PM-accessible users only)

@@ -290,9 +290,12 @@ class TelegramQuizBot:
             from src.bot.dev_commands import DeveloperCommands
             if self.db:
                 self._dev = DeveloperCommands(self.db, self.quiz_manager)
-                app.add_handler(CommandHandler("devstats",    self._dev.devstats))
-                app.add_handler(CommandHandler("activity",    self._dev.activity))
-                app.add_handler(CommandHandler("performance", self._dev.performance_stats))
+                app.add_handler(CommandHandler("devstats",           self._dev.devstats))
+                app.add_handler(CommandHandler("activity",           self._dev.activity))
+                app.add_handler(CommandHandler("performance",        self._dev.performance_stats))
+                app.add_handler(CommandHandler("broadcast_confirm",  self._dev.broadcast_confirm))
+                app.add_handler(CommandHandler("delbroadcast",       self._dev.delbroadcast))
+                app.add_handler(CommandHandler("delbroadcast_confirm", self._dev.delbroadcast_confirm))
                 app.add_handler(CallbackQueryHandler(
                     self._dev.handle_edit_quiz_callback, pattern="^eq_"))
                 app.add_handler(MessageHandler(
