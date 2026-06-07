@@ -130,13 +130,19 @@ def run_polling_mode(config: Config):
         scheduler.start()
 
         logger.info("🎯 Bot is live! Listening for messages… (Ctrl+C to stop)")
-        try:
-            await bot.application.run_polling(
+        async with bot.application:
+            await bot.application.start()
+            scheduler.start()
+            await bot.application.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=["message", "poll_answer", "callback_query"],
             )
-        finally:
-            scheduler.stop()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                scheduler.stop()
+                await bot.application.updater.stop()
+                await bot.application.stop()
 
     asyncio.run(_run_all())
 
