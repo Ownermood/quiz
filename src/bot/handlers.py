@@ -459,7 +459,7 @@ class TelegramQuizBot:
                 f"  📚  <b>Quizzes Played</b>  :  <b>{total_q}</b>\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"⚜  <b><i>Train  •  Practice  •  Dominate</i></b>  ⚜\n\n"
-                f"  ⚡  <a href=\"https://t.me/CLAT_Vision\">CLAT Vision</a>  ·  <b>CLAT 2027</b>"
+                f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
             )
         else:
             q_count = len(self.quiz_manager.questions)
@@ -552,7 +552,7 @@ class TelegramQuizBot:
             f"╰──────────────────────────────────────────╯\n\n"
 
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  ⚡  <a href=\"https://t.me/CLAT_Vision\">CLAT Vision</a>  ·  <b>CLAT 2027</b>"
+            f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
         )
 
         kb = InlineKeyboardMarkup([
