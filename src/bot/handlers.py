@@ -288,15 +288,17 @@ class TelegramQuizBot:
             logger.error(f"_reply error: {e}")
         return None
 
-    async def _edit(self, msg, text: str, reply_markup=None):
-        """Safe message edit."""
+    async def _edit(self, msg, text: str, reply_markup=None) -> bool:
+        """Safe message edit. Returns True on success, False on failure."""
         try:
             kwargs = {"parse_mode": ParseMode.HTML}
             if reply_markup:
                 kwargs["reply_markup"] = reply_markup
             await msg.edit_text(text, **kwargs)
+            return True
         except Exception as e:
             logger.error(f"_edit error: {e}")
+            return False
 
     async def _unauthorized(self, update: Update):
         """Professional access denied — auto-deletes after 7s."""
@@ -419,7 +421,9 @@ class TelegramQuizBot:
         ])
 
         if msg:
-            await self._edit(msg, text, kb)
+            ok = await self._edit(msg, text, kb)
+            if not ok:
+                await self._reply(update, text, reply_markup=kb)
         else:
             await self._reply(update, text, reply_markup=kb)
 
