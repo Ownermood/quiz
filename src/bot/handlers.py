@@ -789,8 +789,13 @@ class TelegramQuizBot:
                     thread_id=thread_id, poll_id=poll_id,
                     is_correct=is_correct,
                     category=data.get("category", ""))
+                # Save name every time so leaderboard always has real names
+                u = answer.user
+                uname = (u.first_name or "").strip() or (u.username or "").strip()
                 self.db.upsert_user(user_id, {
                     "user_id":       user_id,
+                    "name":          uname or f"User{str(user_id)[-4:]}",
+                    "username":      u.username or "",
                     "last_seen":     datetime.utcnow().isoformat(),
                     "total_answers": self.quiz_manager.get_score(user_id),
                 })
@@ -853,6 +858,7 @@ class TelegramQuizBot:
 
     async def cmd_score(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
+        msg     = await self._reply(update, "🏆")
         mention = UI.mention(user.id, user.first_name or "User")
         score   = self.quiz_manager.get_score(user.id)
         stats   = self.quiz_manager.get_user_stats(user.id)
@@ -902,12 +908,18 @@ class TelegramQuizBot:
             [InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard"),
              InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
         ])
-        await self._reply(update, text, reply_markup=kb)
+        if msg:
+            ok = await self._edit(msg, text, kb)
+            if not ok:
+                await self._reply(update, text, reply_markup=kb)
+        else:
+            await self._reply(update, text, reply_markup=kb)
 
     # ─── /stats ──────────────────────────────────────────────
 
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
+        msg     = await self._reply(update, "📊")
         mention = UI.mention(user.id, user.first_name or "User")
 
         score  = self.quiz_manager.get_score(user.id)
@@ -967,12 +979,18 @@ class TelegramQuizBot:
              InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard")],
             [InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
         ])
-        await self._reply(update, text, reply_markup=kb)
+        if msg:
+            ok = await self._edit(msg, text, kb)
+            if not ok:
+                await self._reply(update, text, reply_markup=kb)
+        else:
+            await self._reply(update, text, reply_markup=kb)
 
     # ─── /achievements ───────────────────────────────────────
 
     async def cmd_achievements(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
+        msg     = await self._reply(update, "🎖")
         mention = UI.mention(user.id, user.first_name or "User")
         score   = self.quiz_manager.get_score(user.id)
         stats   = self.quiz_manager.get_user_stats(user.id)
@@ -1015,11 +1033,18 @@ class TelegramQuizBot:
              InlineKeyboardButton("📊 My Stats",    callback_data="my_stats")],
             [InlineKeyboardButton("🏠 Home",         callback_data="back_start")],
         ])
-        await self._reply(update, "\n".join(lines), reply_markup=kb)
+        result_text = "\n".join(lines)
+        if msg:
+            ok = await self._edit(msg, result_text, kb)
+            if not ok:
+                await self._reply(update, result_text, reply_markup=kb)
+        else:
+            await self._reply(update, result_text, reply_markup=kb)
 
     # ─── /botstats ───────────────────────────────────────────
 
     async def cmd_botstats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        msg = await self._reply(update, "📊")
 
         q_total = len(self.quiz_manager.questions)
 
@@ -1122,7 +1147,12 @@ class TelegramQuizBot:
             [InlineKeyboardButton("📈 Dev Stats",  callback_data="devstats_prompt"),
              InlineKeyboardButton("🏠 Home",        callback_data="back_start")],
         ])
-        await self._reply(update, text, reply_markup=kb)
+        if msg:
+            ok = await self._edit(msg, text, kb)
+            if not ok:
+                await self._reply(update, text, reply_markup=kb)
+        else:
+            await self._reply(update, text, reply_markup=kb)
 
     # ─── /leaderboard ────────────────────────────────────────
 
@@ -1139,7 +1169,10 @@ class TelegramQuizBot:
         thread_id = get_thread_id(update)
         is_group  = chat.type in ("group", "supergroup")
 
-        wait_msg = None
+        if edit_msg is None:
+            wait_msg = await self._reply(update, "🏆")
+        else:
+            wait_msg = None
 
         # Determine leaderboard data source
         if is_group and mode == "global":
@@ -1180,24 +1213,52 @@ class TelegramQuizBot:
 
         lines = [f"{title}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"]
 
+        # Pre-resolve names: DB first, then live get_chat for unknowns
+        names: dict = {}
+        unknown_uids = []
+        for entry in lb[:10]:
+            uid = entry.get("user_id")
+            if uid == OWNER_ID:
+                names[uid] = OWNER_NAME
+                continue
+            resolved = None
+            if self.db:
+                try:
+                    doc = self.db.users_col.find_one(
+                        {"user_id": uid}, {"name": 1, "username": 1})
+                    if doc:
+                        resolved = (doc.get("name") or doc.get("username") or "").strip() or None
+                except Exception:
+                    pass
+            if resolved:
+                names[uid] = resolved[:20]
+            else:
+                unknown_uids.append(uid)
+
+        # Live fetch for unknown users (saves back to DB)
+        for uid in unknown_uids[:5]:
+            try:
+                chat_obj = await context.bot.get_chat(uid)
+                n = (chat_obj.first_name or chat_obj.username or "").strip()
+                if n:
+                    names[uid] = n[:20]
+                    if self.db:
+                        try:
+                            self.db.upsert_user(uid, {
+                                "user_id": uid, "name": n,
+                                "username": chat_obj.username or ""})
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
         for i, entry in enumerate(lb[:10]):
             uid   = entry.get("user_id")
             score = entry.get("correct_answers", entry.get("score", 0))
             acc   = entry.get("accuracy", 0)
             pos   = i + 1
 
-            display = f"User {str(uid)[-4:]}"
-            if uid == OWNER_ID:
-                display = OWNER_NAME
-            elif self.db:
-                try:
-                    doc = self.db.users_col.find_one(
-                        {"user_id": uid}, {"name": 1, "username": 1})
-                    if doc:
-                        display = (doc.get("name") or doc.get("username") or display)[:20]
-                except Exception:
-                    pass
-
+            display = names.get(uid) or f"User {str(uid)[-4:]}"
             mention = UI.mention(uid, display)
 
             if pos == 1:
@@ -1617,6 +1678,7 @@ class TelegramQuizBot:
             await self._dev.dev(update, context)
             return
 
+        msg     = await self._reply(update, "👑")
         mention = UI.mention(user.id,
             OWNER_NAME if self._is_owner(user.id) else (user.first_name or "Dev"))
         q_count = len(self.quiz_manager.questions)
@@ -1674,7 +1736,12 @@ class TelegramQuizBot:
             [InlineKeyboardButton("🔄 Reload",       callback_data="reload_questions"),
              InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
         ])
-        await self._reply(update, text, reply_markup=kb)
+        if msg:
+            ok = await self._edit(msg, text, kb)
+            if not ok:
+                await self._reply(update, text, reply_markup=kb)
+        else:
+            await self._reply(update, text, reply_markup=kb)
 
     # ─── /broadcast ──────────────────────────────────────────
 
