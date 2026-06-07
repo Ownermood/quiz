@@ -214,18 +214,6 @@ class DatabaseManager:
     def get_all_developers(self) -> List[Dict]:
         return list(self.developers_col.find({}, {"_id": 0}))
 
-    def add_developer(self, user_id: int, username: str = "", name: str = "") -> bool:
-        try:
-            self.developers_col.update_one(
-                {"user_id": user_id},
-                {"$set": {"username": username, "name": name,
-                           "added_at": datetime.utcnow().isoformat()}},
-                upsert=True
-            )
-            return True
-        except Exception:
-            return False
-
     def remove_developer(self, user_id: int) -> bool:
         result = self.developers_col.delete_one({"user_id": user_id})
         return result.deleted_count > 0
@@ -271,17 +259,6 @@ class DatabaseManager:
         return list(self.activities_col.find({}, {"_id": 0})
                     .sort("timestamp", DESCENDING).limit(limit))
 
-    def get_activity_stats(self, days: int = 7) -> Dict:
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-        total = self.activities_col.count_documents({"timestamp": {"$gte": cutoff}})
-        by_type = {}
-        for row in self.activities_col.aggregate([
-            {"$match": {"timestamp": {"$gte": cutoff}}},
-            {"$group": {"_id": "$type", "count": {"$sum": 1}}}
-        ]):
-            by_type[row["_id"]] = row["count"]
-        return {"total": total, "by_type": by_type}
-
     def get_user_engagement_stats(self) -> Dict:
         return {
             "total_users": self.users_col.count_documents({}),
@@ -289,28 +266,12 @@ class DatabaseManager:
             "active_30d": self.get_active_users_count(30)
         }
 
-    def get_quiz_stats_by_period(self, days: int = 7) -> Dict:
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-        count = self.activities_col.count_documents(
-            {"type": "quiz_answer", "timestamp": {"$gte": cutoff}})
-        correct = self.activities_col.count_documents(
-            {"type": "quiz_answer", "is_correct": True, "timestamp": {"$gte": cutoff}})
-        return {"answers": count, "correct": correct, "period_days": days}
-
     # ── Performance ───────────────────────────────────────────────────────────
 
     def log_performance_metric(self, metric: str, value: float, extra: Dict = None):
         doc = {"metric": metric, "value": value,
                "timestamp": datetime.utcnow().isoformat(), **(extra or {})}
         self.performance_col.insert_one(doc)
-
-    def get_performance_summary(self) -> Dict:
-        result = {}
-        for row in self.performance_col.aggregate([
-            {"$group": {"_id": "$metric", "avg": {"$avg": "$value"}, "count": {"$sum": 1}}}
-        ]):
-            result[row["_id"]] = {"avg": row["avg"], "count": row["count"]}
-        return result
 
     def get_response_time_trends(self, hours: int = 24) -> List[Dict]:
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
@@ -324,30 +285,12 @@ class DatabaseManager:
             {"metric": "memory", "timestamp": {"$gte": cutoff}}, {"_id": 0}
         ).sort("timestamp", ASCENDING))
 
-    def get_error_rate_stats(self, hours: int = 24) -> Dict:
-        cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
-        errors = self.activities_col.count_documents(
-            {"type": "error", "timestamp": {"$gte": cutoff}})
-        total = self.activities_col.count_documents({"timestamp": {"$gte": cutoff}})
-        return {"errors": errors, "total": total,
-                "rate": (errors / total * 100) if total else 0}
-
     def get_api_call_counts(self, hours: int = 24) -> Dict:
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
         result = {}
         for row in self.activities_col.aggregate([
             {"$match": {"type": "api_call", "timestamp": {"$gte": cutoff}}},
             {"$group": {"_id": "$endpoint", "count": {"$sum": 1}}}
-        ]):
-            result[row["_id"]] = row["count"]
-        return result
-
-    def get_command_usage_stats(self, days: int = 7) -> Dict:
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-        result = {}
-        for row in self.activities_col.aggregate([
-            {"$match": {"type": "command", "timestamp": {"$gte": cutoff}}},
-            {"$group": {"_id": "$command", "count": {"$sum": 1}}}
         ]):
             result[row["_id"]] = row["count"]
         return result
@@ -507,11 +450,17 @@ class DatabaseManager:
         return result
 
     def add_developer(self, user_id: int, username: str = "", name: str = "",
+                      first_name: str = "", last_name: str = "",
                       added_by: int = None) -> bool:
-        """Override to accept optional added_by param."""
         try:
-            doc = {"username": username, "name": name,
-                   "added_at": datetime.utcnow().isoformat()}
+            display_name = name or first_name or username or ""
+            doc = {
+                "username":   username,
+                "name":       display_name,
+                "first_name": first_name,
+                "last_name":  last_name,
+                "added_at":   datetime.utcnow().isoformat(),
+            }
             if added_by:
                 doc["added_by"] = added_by
             self.developers_col.update_one(

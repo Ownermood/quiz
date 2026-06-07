@@ -426,6 +426,27 @@ class QuizManager:
                 return s.get("last_activity_date")
         return None
 
+    def get_quiz_stats(self) -> Dict:
+        """Return basic quiz stats used by dev_commands after deletion."""
+        db_count = 0
+        try:
+            db_count = self.db.questions_col.count_documents({})
+        except Exception:
+            db_count = len(self.questions)
+        status = "synced" if db_count == len(self.questions) else "out_of_sync"
+        return {
+            "total_quizzes":    len(self.questions),
+            "db_count":         db_count,
+            "integrity_status": status,
+        }
+
+    def remove_active_chat(self, chat_id: int):
+        """Remove a chat from active_chats (called when bot is kicked from group)."""
+        try:
+            self.active_chats.remove(chat_id)
+        except ValueError:
+            pass
+
     def _initialize_available_questions(self, chat_id: int):
         self.available_questions[chat_id] = list(range(len(self.questions)))
         random.shuffle(self.available_questions[chat_id])

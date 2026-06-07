@@ -959,13 +959,13 @@ class DeveloperCommands:
                 quiz_stats_week = self.db.get_quiz_stats_by_period('week')
                 quiz_stats_month = self.db.get_quiz_stats_by_period('month')
                 
-                quizzes_today = quiz_stats_today.get('quizzes_answered', 0)
-                quizzes_week = quiz_stats_week.get('quizzes_answered', 0)
-                quizzes_month = quiz_stats_month.get('quizzes_answered', 0)
+                quizzes_today = quiz_stats_today.get('total_quizzes', 0)
+                quizzes_week = quiz_stats_week.get('total_quizzes', 0)
+                quizzes_month = quiz_stats_month.get('total_quizzes', 0)
                 
                 # Get total quizzes answered (all time)
                 all_time_stats = self.db.get_quiz_stats_by_period('all')
-                quizzes_total = all_time_stats.get('quizzes_answered', 0)
+                quizzes_total = all_time_stats.get('total_quizzes', 0)
                 
                 success_rate = quiz_stats_week.get('success_rate', 0)
                 
@@ -975,7 +975,7 @@ class DeveloperCommands:
                 
                 # Get total commands executed in last 24h
                 activity_stats_24h = self.db.get_activity_stats(1)
-                commands_24h = activity_stats_24h.get('activities_by_type', {}).get('command', 0)
+                commands_24h = activity_stats_24h.get('by_type', {}).get('command', 0)
                 
                 # Get error rate
                 error_stats = self.db.get_error_rate_stats(1)
@@ -1656,20 +1656,25 @@ class DeveloperCommands:
             
             # Store sent messages in database for delbroadcast feature
             if sent_messages:
-                self.db.save_broadcast(broadcast_id, update.effective_user.id, sent_messages)
+                self.db.save_broadcast({
+                    "broadcast_id": broadcast_id,
+                    "user_id": update.effective_user.id,
+                    "messages": sent_messages,
+                })
                 logger.info(f"Saved broadcast {broadcast_id} to database with {len(sent_messages)} messages")
             
             # Log broadcast to database for historical tracking
             total_targets = len(users) + len(groups)
             message_text = (context.user_data.get('broadcast_message', '') if context.user_data else '')[:500] if broadcast_type == 'text' else f"[{broadcast_type.upper()} BROADCAST]"
-            self.db.log_broadcast(
-                admin_id=update.effective_user.id,
-                message_text=message_text,
-                total_targets=total_targets,
-                sent_count=success_count,
-                failed_count=fail_count,
-                skipped_count=skipped_count
-            )
+            self.db.log_broadcast({
+                "admin_id":      update.effective_user.id,
+                "message_text":  message_text,
+                "total_targets": total_targets,
+                "sent_count":    success_count,
+                "failed_count":  fail_count,
+                "skipped_count": skipped_count,
+                "created_at":    datetime.utcnow().isoformat(),
+            })
             
             # Get stats for result message (from all users, not just PM users)
             all_users = self.db.get_all_users_stats()
@@ -1684,10 +1689,10 @@ class DeveloperCommands:
             quiz_stats_month = self.db.get_quiz_stats_by_period('month')
             all_time_stats = self.db.get_quiz_stats_by_period('all')
             
-            quizzes_today = quiz_stats_today.get('quizzes_answered', 0)
-            quizzes_week = quiz_stats_week.get('quizzes_answered', 0)
-            quizzes_month = quiz_stats_month.get('quizzes_answered', 0)
-            quizzes_total = all_time_stats.get('quizzes_answered', 0)
+            quizzes_today = quiz_stats_today.get('total_quizzes', 0)
+            quizzes_week = quiz_stats_week.get('total_quizzes', 0)
+            quizzes_month = quiz_stats_month.get('total_quizzes', 0)
+            quizzes_total = all_time_stats.get('total_quizzes', 0)
             
             # Build optimized result message
             result_text = f"✅ Broadcast completed!\n\n"
@@ -2103,21 +2108,21 @@ class DeveloperCommands:
             
             total_users = len(self.db.get_pm_accessible_users())
             total_groups = len(self.db.get_all_groups())
-            active_today = self.db.get_active_users_count('today')
-            active_week = self.db.get_active_users_count('week')
-            active_month = self.db.get_active_users_count('month')
-            
-            new_users = len(self.db.get_new_users(7))
-            most_active = self.db.get_most_active_users(5, 30)
+            active_today = self.db.get_active_users_count(1)
+            active_week = self.db.get_active_users_count(7)
+            active_month = self.db.get_active_users_count(30)
+
+            new_users = self.db.get_new_users(7)
+            most_active = self.db.get_most_active_users(5)
             
             quiz_today = self.db.get_quiz_stats_by_period('today')
             quiz_week = self.db.get_quiz_stats_by_period('week')
             
-            commands_24h = activity_stats['activities_by_type'].get('command', 0)
-            quizzes_sent_24h = activity_stats['activities_by_type'].get('quiz_sent', 0)
-            quizzes_answered_24h = activity_stats['activities_by_type'].get('quiz_answered', 0)
-            broadcasts_24h = activity_stats['activities_by_type'].get('broadcast', 0)
-            errors_24h = activity_stats['activities_by_type'].get('error', 0)
+            commands_24h = activity_stats.get('by_type', {}).get('command', 0)
+            quizzes_sent_24h = activity_stats.get('by_type', {}).get('quiz_sent', 0)
+            quizzes_answered_24h = activity_stats.get('by_type', {}).get('quiz_answered', 0)
+            broadcasts_24h = activity_stats.get('by_type', {}).get('broadcast', 0)
+            errors_24h = activity_stats.get('by_type', {}).get('error', 0)
             
             recent_activities = self.db.get_recent_activities(10)
             activity_feed = ""
