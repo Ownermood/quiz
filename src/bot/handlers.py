@@ -374,8 +374,8 @@ class TelegramQuizBot:
         rank_pos        = self._get_user_rank_position(user.id)
         rank_line       = f"#{rank_pos} Global" if rank_pos else "Not Ranked Yet"
 
-        filled   = int(rate / 10)
-        prog_bar = "▰" * filled + "▱" * (10 - filled)
+        filled   = int(float(rate) / 10)
+        prog_bar = "🟩" * filled + "⬜" * (10 - filled)
         streak_d = f"{streak} Days" if streak > 0 else "0 Days"
 
         if is_pm:
