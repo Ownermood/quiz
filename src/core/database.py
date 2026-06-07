@@ -175,6 +175,10 @@ class DatabaseManager:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         return self.users_col.count_documents({"joined_at": {"$gte": cutoff}})
 
+    def get_new_groups(self, days: int = 7) -> int:
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        return self.groups_col.count_documents({"joined_at": {"$gte": cutoff}})
+
     def get_most_active_users(self, limit: int = 10) -> List[Dict]:
         return list(self.users_col.find({}, {"_id": 0})
                     .sort("total_answers", DESCENDING).limit(limit))

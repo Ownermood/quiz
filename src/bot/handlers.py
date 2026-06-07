@@ -775,12 +775,19 @@ class TelegramQuizBot:
         msg = await self._reply(update, "📊 <i>Loading analytics...</i>")
         await asyncio.sleep(0.4)
 
-        q_total  = len(self.quiz_manager.questions)
-        u_total  = g_total = 0
+        q_total = len(self.quiz_manager.questions)
+
+        # Users
+        u_total = u_active_d = u_active_w = 0
+        u_new_d = u_new_w = u_new_m = 0
+        # Groups
+        g_total = g_new_d = g_new_w = g_new_m = 0
+        # Quiz attempts
         d_q = w_q = m_q = a_q = 0
         d_c = w_c = m_c = a_c = 0
-        d_users: set = set()
-        w_users: set = set()
+        d_players: set = set()
+        w_players: set = set()
+        m_players: set = set()
 
         if self.db:
             try:
@@ -790,7 +797,24 @@ class TelegramQuizBot:
                 w_cut = (now - timedelta(days=7)).isoformat()
                 m_cut = (now - timedelta(days=30)).isoformat()
                 acts  = self.db.activities_col
+                ucol  = self.db.users_col
+                gcol  = self.db.groups_col
 
+                # ── Users ────────────────────────────────────
+                u_total    = ucol.count_documents({})
+                u_active_d = ucol.count_documents({"last_seen": {"$gte": d_cut}})
+                u_active_w = ucol.count_documents({"last_seen": {"$gte": w_cut}})
+                u_new_d    = ucol.count_documents({"joined_at": {"$gte": d_cut}})
+                u_new_w    = ucol.count_documents({"joined_at": {"$gte": w_cut}})
+                u_new_m    = ucol.count_documents({"joined_at": {"$gte": m_cut}})
+
+                # ── Groups ───────────────────────────────────
+                g_total = gcol.count_documents({})
+                g_new_d = gcol.count_documents({"joined_at": {"$gte": d_cut}})
+                g_new_w = gcol.count_documents({"joined_at": {"$gte": w_cut}})
+                g_new_m = gcol.count_documents({"joined_at": {"$gte": m_cut}})
+
+                # ── Quiz attempts ────────────────────────────
                 d_q = acts.count_documents({"type": "quiz_answer", "timestamp": {"$gte": d_cut}})
                 w_q = acts.count_documents({"type": "quiz_answer", "timestamp": {"$gte": w_cut}})
                 m_q = acts.count_documents({"type": "quiz_answer", "timestamp": {"$gte": m_cut}})
@@ -801,13 +825,13 @@ class TelegramQuizBot:
                 m_c = acts.count_documents({"type": "quiz_answer", "is_correct": True, "timestamp": {"$gte": m_cut}})
                 a_c = acts.count_documents({"type": "quiz_answer", "is_correct": True})
 
-                d_users = set(d["user_id"] for d in acts.find(
+                d_players = set(d["user_id"] for d in acts.find(
                     {"type": "quiz_answer", "timestamp": {"$gte": d_cut}}, {"user_id": 1}))
-                w_users = set(d["user_id"] for d in acts.find(
+                w_players = set(d["user_id"] for d in acts.find(
                     {"type": "quiz_answer", "timestamp": {"$gte": w_cut}}, {"user_id": 1}))
+                m_players = set(d["user_id"] for d in acts.find(
+                    {"type": "quiz_answer", "timestamp": {"$gte": m_cut}}, {"user_id": 1}))
 
-                u_total = self.db.users_col.count_documents({})
-                g_total = self.db.groups_col.count_documents({})
             except Exception as e:
                 logger.error(f"botstats DB error: {e}")
 
@@ -817,30 +841,45 @@ class TelegramQuizBot:
             f"📊 <b>BOT ANALYTICS</b>\n"
             f"{UI.LINE}\n\n"
 
-            f"<b>DATABASE</b>\n"
+            f"<b>👥 USERS</b>\n"
             f"{UI.THIN}\n"
-            f"  Questions  ›  <b>{UI.fmt_num(q_total)}</b>\n"
-            f"  Users      ›  <b>{UI.fmt_num(u_total)}</b>\n"
-            f"  Groups     ›  <b>{UI.fmt_num(g_total)}</b>\n\n"
+            f"  Total      ›  <b>{UI.fmt_num(u_total)}</b>\n"
+            f"  Active 24h ›  <b>{u_active_d}</b>\n"
+            f"  Active 7d  ›  <b>{u_active_w}</b>\n"
+            f"  New today  ›  <b>+{u_new_d}</b>\n"
+            f"  New 7 days ›  <b>+{u_new_w}</b>\n"
+            f"  New 30 days›  <b>+{u_new_m}</b>\n\n"
 
-            f"<b>LAST 24 HOURS</b>\n"
+            f"<b>💬 GROUPS</b>\n"
+            f"{UI.THIN}\n"
+            f"  Total      ›  <b>{UI.fmt_num(g_total)}</b>\n"
+            f"  New today  ›  <b>+{g_new_d}</b>\n"
+            f"  New 7 days ›  <b>+{g_new_w}</b>\n"
+            f"  New 30 days›  <b>+{g_new_m}</b>\n\n"
+
+            f"<b>📚 QUESTIONS</b>\n"
+            f"{UI.THIN}\n"
+            f"  In bank    ›  <b>{UI.fmt_num(q_total)}</b>\n\n"
+
+            f"<b>🎯 QUIZ ACTIVITY — 24h</b>\n"
             f"{UI.THIN}\n"
             f"  Attempts   ›  <b>{d_q}</b>   Correct ›  <b>{d_c}</b>\n"
             f"  Accuracy   ›  <b>{acc(d_c, d_q)}</b>\n"
-            f"  Players    ›  <b>{len(d_users)}</b>\n\n"
+            f"  Players    ›  <b>{len(d_players)}</b>\n\n"
 
-            f"<b>LAST 7 DAYS</b>\n"
+            f"<b>🎯 QUIZ ACTIVITY — 7 days</b>\n"
             f"{UI.THIN}\n"
             f"  Attempts   ›  <b>{w_q}</b>   Correct ›  <b>{w_c}</b>\n"
             f"  Accuracy   ›  <b>{acc(w_c, w_q)}</b>\n"
-            f"  Players    ›  <b>{len(w_users)}</b>\n\n"
+            f"  Players    ›  <b>{len(w_players)}</b>\n\n"
 
-            f"<b>LAST 30 DAYS</b>\n"
+            f"<b>🎯 QUIZ ACTIVITY — 30 days</b>\n"
             f"{UI.THIN}\n"
             f"  Attempts   ›  <b>{m_q}</b>   Correct ›  <b>{m_c}</b>\n"
-            f"  Accuracy   ›  <b>{acc(m_c, m_q)}</b>\n\n"
+            f"  Accuracy   ›  <b>{acc(m_c, m_q)}</b>\n"
+            f"  Players    ›  <b>{len(m_players)}</b>\n\n"
 
-            f"<b>ALL TIME</b>\n"
+            f"<b>🏆 ALL TIME</b>\n"
             f"{UI.THIN}\n"
             f"  Attempts   ›  <b>{UI.fmt_num(a_q)}</b>   Correct ›  <b>{UI.fmt_num(a_c)}</b>\n"
             f"  Accuracy   ›  <b>{acc(a_c, a_q)}</b>\n\n"
