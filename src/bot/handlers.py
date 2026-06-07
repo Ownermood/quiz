@@ -480,48 +480,50 @@ class TelegramQuizBot:
     # ─── /help ───────────────────────────────────────────────
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        is_pm = update.effective_chat.type == "private"
-
         text = (
-            f"🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Command Guide\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"╔══════════════════════════════════════════╗\n"
+            f"║   🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Command Guide   ║\n"
+            f"╚══════════════════════════════════════════╝\n\n"
 
             f"🎯  <b>𝐐𝐔𝐈𝐙  𝐂𝐄𝐍𝐓𝐄𝐑</b>\n"
-            f"  ◈  /quiz              Start a quiz\n"
-            f"  ◈  /quiz [topic]  Quiz by subject\n"
-            f"  ◈  /q                  Quick shortcut\n\n"
-            f"  📚  <i>Topics:</i>  <code>legal · english · gk</code>\n"
-            f"  <code>          polity · history · reasoning</code>\n\n"
-
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /quiz              ›  Start a quiz\n"
+            f"│  /quiz [topic]  ›  Quiz by subject\n"
+            f"│  /q                  ›  Quick shortcut\n"
+            f"╰──────────────────────────────────────────╯\n"
+            f"  📚  <i>Topics:</i>  <code>legal  ·  english  ·  gk</code>\n"
+            f"  <code>           polity  ·  history  ·  reasoning</code>\n\n"
 
             f"📊  <b>𝐏𝐑𝐎𝐆𝐑𝐄𝐒𝐒  𝐂𝐄𝐍𝐓𝐄𝐑</b>\n"
-            f"  ◈  /score          Scorecard &amp; rank\n"
-            f"  ◈  /stats          Full analytics\n\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /score           ›  Scorecard &amp; rank\n"
+            f"│  /stats            ›  Full analytics\n"
+            f"│  /achievements  ›  Badges &amp; milestones\n"
+            f"╰──────────────────────────────────────────╯\n\n"
 
             f"🏆  <b>𝐂𝐎𝐌𝐏𝐄𝐓𝐈𝐓𝐈𝐎𝐍</b>\n"
-            f"  ◈  /leaderboard  Global rankings\n\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /leaderboard  ›  Global rankings\n"
+            f"│  /lb                  ›  Quick shortcut\n"
+            f"╰──────────────────────────────────────────╯\n\n"
 
             f"🔧  <b>𝐒𝐘𝐒𝐓𝐄𝐌</b>\n"
-            f"  ◈  /ping            Latency check\n"
-            f"  ◈  /info            Bot information\n\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /ping    ›  Latency check\n"
+            f"│  /info     ›  Bot information\n"
+            f"│  /start   ›  Dashboard\n"
+            f"╰──────────────────────────────────────────╯\n\n"
 
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-
-            f"👑  <b>𝐀𝐃𝐌𝐈𝐍  𝐂𝐄𝐍𝐓𝐄𝐑</b>  <i>· Owner &amp; Devs</i>\n"
-            f"  ◈  /addquiz  /delquiz  /editquiz\n"
-            f"  ◈  /importquiz  /broadcast  /reload\n"
-            f"  ◈  /restart  /dev  /devstats\n\n"
-
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
         )
 
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎯 Start Quiz",   callback_data="play_quiz"),
-             InlineKeyboardButton("📊 My Stats",     callback_data="my_stats")],
-            [InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard"),
-             InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
+            [InlineKeyboardButton("🎯 Start Quiz",    callback_data="play_quiz"),
+             InlineKeyboardButton("📊 My Stats",      callback_data="my_stats")],
+            [InlineKeyboardButton("🏆 Leaderboard",   callback_data="leaderboard"),
+             InlineKeyboardButton("🎖 Achievements",  callback_data="achievements")],
+            [InlineKeyboardButton("🏠 Home",           callback_data="back_start")],
         ])
         await self._reply(update, text, reply_markup=kb)
 
@@ -1555,31 +1557,56 @@ class TelegramQuizBot:
                 pass
 
         text = (
-            f"👑  <b>𝐀𝐃𝐌𝐈𝐍  𝐏𝐀𝐍𝐄𝐋</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"  {mention}\n\n"
-            f"╭──────────────────────────────────────╮\n"
+            f"╔══════════════════════════════════════════╗\n"
+            f"║      👑  <b>𝐀𝐃𝐌𝐈𝐍  𝐏𝐀𝐍𝐄𝐋</b>  ·  {mention}      ║\n"
+            f"╚══════════════════════════════════════════╝\n\n"
+
+            f"📊  <b>𝐋𝐈𝐕𝐄  𝐒𝐓𝐀𝐓𝐒</b>\n"
+            f"╭──────────────────────────────────────────╮\n"
             f"│  📚  Questions     ›  <b>{q_count}</b>\n"
             f"│  👥  Users         ›  <b>{users}</b>\n"
             f"│  💬  Groups        ›  <b>{groups}</b>\n"
             f"│  ⚡  Active Chats  ›  <b>{chats}</b>\n"
-            f"│  🆔  Owner ID      ›  <code>{OWNER_ID}</code>\n"
-            f"╰──────────────────────────────────────╯\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"🔧  <b>𝐂𝐎𝐌𝐌𝐀𝐍𝐃𝐒</b>\n\n"
-            f"  📝  /addquiz  · /delquiz  · /editquiz\n"
-            f"  📥  /importquiz  · /reload  · /restart\n"
-            f"  📡  /broadcast\n"
-            f"  📊  /botstats  · /devstats  · /dev\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  <i>⚡ CLAT Vision Admin Center</i>"
+            f"╰──────────────────────────────────────────╯\n\n"
+
+            f"📝  <b>𝐐𝐔𝐈𝐙  𝐌𝐀𝐍𝐀𝐆𝐄𝐌𝐄𝐍𝐓</b>\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /addquiz      ›  Add a new question\n"
+            f"│  /editquiz     ›  Edit existing question\n"
+            f"│  /delquiz      ›  Delete a question\n"
+            f"│  /importquiz  ›  Bulk import (JSON)\n"
+            f"╰──────────────────────────────────────────╯\n\n"
+
+            f"🛠️  <b>𝐒𝐘𝐒𝐓𝐄𝐌  &amp;  𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓</b>\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /broadcast  ›  Message all users\n"
+            f"│  /reload      ›  Reload questions\n"
+            f"│  /restart     ›  Restart bot\n"
+            f"╰──────────────────────────────────────────╯\n\n"
+
+            f"📈  <b>𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /botstats   ›  User &amp; group overview\n"
+            f"│  /devstats   ›  Developer metrics\n"
+            f"│  /activity    ›  Activity logs\n"
+            f"╰──────────────────────────────────────────╯\n\n"
+
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  🆔  Owner ID  ›  <code>{OWNER_ID}</code>"
         )
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📊 Bot Stats",    callback_data="botstats"),
+             InlineKeyboardButton("📡 Broadcast",    callback_data="broadcast_prompt")],
+            [InlineKeyboardButton("🔄 Reload",       callback_data="reload_questions"),
+             InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
+        ])
         if msg:
-            ok = await self._edit(msg, text)
+            ok = await self._edit(msg, text, kb)
             if not ok:
-                await self._reply(update, text)
+                await self._reply(update, text, reply_markup=kb)
         else:
-            await self._reply(update, text)
+            await self._reply(update, text, reply_markup=kb)
 
     # ─── /broadcast ──────────────────────────────────────────
 
@@ -1919,3 +1946,21 @@ class TelegramQuizBot:
         elif data == "lb_monthly":
             await self._show_leaderboard(update, context, mode="monthly",
                                          edit_msg=query.message)
+
+        elif data == "achievements":
+            await self.cmd_achievements(update, context)
+
+        elif data == "botstats":
+            await self.cmd_botstats(update, context)
+
+        elif data == "reload_questions":
+            await self.cmd_reload(update, context)
+
+        elif data == "broadcast_prompt":
+            await query.message.reply_text(
+                f"📡  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓</b>\n\n"
+                f"Send your message using the command:\n"
+                f"  <code>/broadcast Your message here</code>\n\n"
+                f"Alias: <code>/bc</code>",
+                parse_mode=ParseMode.HTML
+            )
