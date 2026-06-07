@@ -339,56 +339,70 @@ class TelegramQuizBot:
         mention = UI.mention(user.id, name)
         is_pm   = update.effective_chat.type == "private"
 
-        # Brief loading indicator (PM only, no childish animations)
+        # Smooth reveal animation (PM only)
         if is_pm:
-            msg = await self._reply(update, "⚡ <i>Loading your profile...</i>")
-            await asyncio.sleep(0.5)
+            msg = await self._reply(update, "🌟")
+            await asyncio.sleep(0.3)
+            await self._edit(msg, "🎓  <b>CLAT VISION</b>  🎓")
+            await asyncio.sleep(0.35)
+            await self._edit(msg,
+                "🎓  <b>CLAT VISION</b>  🎓\n\n"
+                "      <i>Quiz Academy</i>  ✨\n\n"
+                "  ✦ <i>Opening your dashboard…</i> ✦"
+            )
+            await asyncio.sleep(0.45)
         else:
             msg = None
 
         # Fetch stats
-        score  = self.quiz_manager.get_score(user.id)
-        stats  = self.quiz_manager.get_user_stats(user.id)
+        score   = self.quiz_manager.get_score(user.id)
+        stats   = self.quiz_manager.get_user_stats(user.id)
         q_count = len(self.quiz_manager.questions)
 
-        streak   = stats.get("current_streak", 0)
-        rate     = stats.get("success_rate", 0)
-        total_q  = stats.get("total_quizzes", 0)
+        streak  = stats.get("current_streak", 0)
+        rate    = stats.get("success_rate", 0)
+        total_q = stats.get("total_quizzes", 0)
 
         rank_txt, grade = UI.rank(score)
         level_txt       = UI.level(score)
         rank_pos        = self._get_user_rank_position(user.id)
         acc_bar         = UI.bar(rate, width=10)
         streak_text     = UI.streak_display(streak)
+        rank_line       = f"#{rank_pos} Global" if rank_pos else "Unranked"
 
-        rank_line = f"#{rank_pos} Global" if rank_pos else "Unranked"
-
-        text = (
-            f"🎓 <b>CLAT VISION · QUIZ ACADEMY</b>\n"
-            f"{UI.LINE}\n\n"
-            f"  Welcome back, {mention}! 👋\n\n"
-            f"<b>YOUR PROFILE</b>\n"
-            f"{UI.THIN}\n"
-            f"  Rank     ›  {rank_txt} <i>({grade})</i>\n"
-            f"  Position ›  <b>{rank_line}</b>\n"
-            f"  Level    ›  <b>{level_txt}</b>\n"
-            f"  Score    ›  <b>{score}</b> correct answers\n"
-            f"  Streak   ›  {streak_text}\n"
-            f"  Accuracy ›  <b>{rate}%</b>  [{acc_bar}]\n"
-            f"  Played   ›  <b>{total_q}</b> questions\n\n"
-            f"<b>QUESTION BANK</b>\n"
-            f"{UI.THIN}\n"
-            f"  📚 <b>{UI.fmt_num(q_count)}</b> questions ready to practice\n\n"
-            f"{UI.LINE}\n"
-            f"  ⚡ {COMMUNITY}  ·  CLAT 2027"
-        )
+        if is_pm:
+            text = (
+                f"✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦\n\n"
+                f"  🎓  <b>𝗖𝗟𝗔𝗧  𝗩𝗜𝗦𝗜𝗢𝗡</b>\n"
+                f"        <i>𝑸𝒖𝒊𝒛  𝑨𝒄𝒂𝒅𝒆𝒎𝒚</i>  ✨\n\n"
+                f"✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦  ✦\n\n"
+                f"  𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒃𝒂𝒄𝒌,  {mention}! 👋\n"
+                f"  <i>Your CLAT 2027 journey awaits…</i>\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"  🏅  <b>Rank</b>        {rank_txt} <i>({grade})</i>\n"
+                f"  🗺  <b>Position</b>    <b>{rank_line}</b>\n"
+                f"  ⚡  <b>Level</b>       <b>{level_txt}</b>\n"
+                f"  🎯  <b>Score</b>       <b>{score}</b> correct\n"
+                f"  🔥  <b>Streak</b>      {streak_text}\n"
+                f"  📊  <b>Accuracy</b>    <b>{rate}%</b>  [{acc_bar}]\n"
+                f"  📝  <b>Played</b>      <b>{total_q}</b> questions\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"  📚  <b>{UI.fmt_num(q_count)}</b> questions in the bank\n\n"
+                f"  ⚡ {COMMUNITY}  ·  <b>CLAT 2027</b>"
+            )
+        else:
+            text = (
+                f"🎓 <b>CLAT VISION</b>  ·  Quiz Academy\n\n"
+                f"  𝑾𝒆𝒍𝒄𝒐𝒎𝒆,  {mention}! 👋\n"
+                f"  <i>Use /quiz to start practising!</i>"
+            )
 
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Start Quiz",     callback_data="play_quiz"),
-             InlineKeyboardButton("🔵 My Stats",       callback_data="my_stats")],
-            [InlineKeyboardButton("🏆 Leaderboard",    callback_data="leaderboard"),
-             InlineKeyboardButton("🟣 Commands",        callback_data="help")],
-            [InlineKeyboardButton("🔴 Join CLAT Vision", url="https://t.me/CLAT_Vision")],
+            [InlineKeyboardButton("🟢 Start Quiz",       callback_data="play_quiz"),
+             InlineKeyboardButton("🔵 My Stats",         callback_data="my_stats")],
+            [InlineKeyboardButton("🏆 Leaderboard",      callback_data="leaderboard"),
+             InlineKeyboardButton("🟣 Commands",          callback_data="help")],
+            [InlineKeyboardButton("🔴 Join CLAT Vision",  url="https://t.me/CLAT_Vision")],
         ])
 
         if msg:
