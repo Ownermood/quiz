@@ -379,14 +379,7 @@ class TelegramQuizBot:
             f"╰──────────────────────────────────────╯\n\n"
             f"  <i>Contact {COMMUNITY} for access.</i>"
         )
-        msg = await self._reply(update, text)
-        await asyncio.sleep(7)
-        try:
-            if msg:
-                await msg.delete()
-            await update.effective_message.delete()
-        except Exception:
-            pass
+        await self._reply(update, text)
 
     def _get_user_rank_position(self, user_id: int) -> Optional[int]:
         """Return global rank position (1-indexed) or None."""
@@ -466,7 +459,7 @@ class TelegramQuizBot:
                 f"  📚  <b>Quizzes Played</b>  :  <b>{total_q}</b>\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"⚜  <b><i>Train  •  Practice  •  Dominate</i></b>  ⚜\n\n"
-                f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
+                f"  ⚡  <a href=\"https://t.me/CLAT_Vision\">CLAT Vision</a>  ·  <b>CLAT 2027</b>"
             )
         else:
             q_count = len(self.quiz_manager.questions)
@@ -548,8 +541,18 @@ class TelegramQuizBot:
             f"│  /start   ›  Dashboard\n"
             f"╰──────────────────────────────────────────╯\n\n"
 
+            f"👑  <b>𝐀𝐃𝐌𝐈𝐍  𝐂𝐄𝐍𝐓𝐄𝐑</b>  <i>· Owner &amp; Devs only</i>\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /dev          ›  Admin panel\n"
+            f"│  /addquiz     ›  Add question\n"
+            f"│  /importquiz ›  Bulk import (.txt)\n"
+            f"│  /broadcast  ›  Message everyone\n"
+            f"│  /botstats   ›  Platform analytics\n"
+            f"│  /reload       ›  Sync from database\n"
+            f"╰──────────────────────────────────────────╯\n\n"
+
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
+            f"  ⚡  <a href=\"https://t.me/CLAT_Vision\">CLAT Vision</a>  ·  <b>CLAT 2027</b>"
         )
 
         kb = InlineKeyboardMarkup([
@@ -634,22 +637,18 @@ class TelegramQuizBot:
     # ─── /categories ─────────────────────────────────────────
 
     async def cmd_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        lines = [
-            f"╔══════════════════════════════════════════╗\n"
-            f"║      📚  <b>𝐕𝐈𝐄𝐖  𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐄𝐒</b>              ║\n"
-            f"╚══════════════════════════════════════════╝\n\n"
-            f"📑  <b>𝐀𝐕𝐀𝐈𝐋𝐀𝐁𝐋𝐄  𝐐𝐔𝐈𝐙  𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐄𝐒</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        ]
-        for emoji, name, key in UI.CATS_DISPLAY:
-            lines.append(f"  {emoji}  {name}  ›  <code>/quiz {key}</code>\n")
-
-        lines.append(
-            f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  🎯  Stay tuned! More categories coming soon!\n"
-            f"  🛠  Need help?  Use /help for all commands"
+        cat_lines = "\n".join(
+            f"•  {name}  {emoji}" for emoji, name, _ in UI.CATS_DISPLAY
         )
-        text = "".join(lines)
+        text = (
+            f"  📚  <b>𝗩𝗜𝗘𝗪  𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦</b>\n"
+            f"══════════════════════════\n\n"
+            f"📑  <b>𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘  𝗤𝗨𝗜𝗭  𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦</b>\n\n"
+            f"{cat_lines}\n\n"
+            f"══════════════════════════\n"
+            f"🎯  Stay tuned! More quizzes coming soon!\n"
+            f"🛠  Need help? Use /help for more commands"
+        )
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎯 Start Quiz",   callback_data="play_quiz"),
              InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard")],
@@ -911,9 +910,6 @@ class TelegramQuizBot:
         user    = update.effective_user
         mention = UI.mention(user.id, user.first_name or "User")
 
-        msg = await self._reply(update, "📊 <i>Crunching your analytics...</i>")
-        await asyncio.sleep(0.4)
-
         score  = self.quiz_manager.get_score(user.id)
         stats  = self.quiz_manager.get_user_stats(user.id)
 
@@ -971,12 +967,7 @@ class TelegramQuizBot:
              InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard")],
             [InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
         ])
-        if msg:
-            ok = await self._edit(msg, text, kb)
-            if not ok:
-                await self._reply(update, text, reply_markup=kb)
-        else:
-            await self._reply(update, text, reply_markup=kb)
+        await self._reply(update, text, reply_markup=kb)
 
     # ─── /achievements ───────────────────────────────────────
 
@@ -1029,8 +1020,6 @@ class TelegramQuizBot:
     # ─── /botstats ───────────────────────────────────────────
 
     async def cmd_botstats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        msg = await self._reply(update, "📊 <i>Loading analytics...</i>")
-        await asyncio.sleep(0.4)
 
         q_total = len(self.quiz_manager.questions)
 
@@ -1133,12 +1122,7 @@ class TelegramQuizBot:
             [InlineKeyboardButton("📈 Dev Stats",  callback_data="devstats_prompt"),
              InlineKeyboardButton("🏠 Home",        callback_data="back_start")],
         ])
-        if msg:
-            ok = await self._edit(msg, text, kb)
-            if not ok:
-                await self._reply(update, text, reply_markup=kb)
-        else:
-            await self._reply(update, text, reply_markup=kb)
+        await self._reply(update, text, reply_markup=kb)
 
     # ─── /leaderboard ────────────────────────────────────────
 
@@ -1155,12 +1139,7 @@ class TelegramQuizBot:
         thread_id = get_thread_id(update)
         is_group  = chat.type in ("group", "supergroup")
 
-        # Show initial loading only when not editing
-        if edit_msg is None:
-            wait_msg = await self._reply(update, "🏆 <i>Loading rankings...</i>")
-            await asyncio.sleep(0.3)
-        else:
-            wait_msg = None
+        wait_msg = None
 
         # Determine leaderboard data source
         if is_group and mode == "global":
@@ -1335,9 +1314,6 @@ class TelegramQuizBot:
             return
 
         category = lines[6].strip() if len(lines) > 6 else "General"
-        msg = await self._reply(update, "⏳ <i>Saving to database...</i>")
-        await asyncio.sleep(0.3)
-
         result = self.quiz_manager.add_questions([{
             "question": question, "options": options,
             "correct_answer": correct, "category": category,
@@ -1381,8 +1357,7 @@ class TelegramQuizBot:
                 f"  Error: <code>{err}</code>"
             )
 
-        if msg: await self._edit(msg, text)
-        else:   await self._reply(update, text)
+        await self._reply(update, text)
 
     # ─── /delquiz ────────────────────────────────────────────
 
@@ -1419,8 +1394,7 @@ class TelegramQuizBot:
                                   if q.get("id") == q_id), {})
                 q_preview = q_info.get("question", f"#{q_id}")[:55]
 
-                msg = await self._reply(update, f"🗑️ <i>Deleting Q#{q_id}...</i>")
-                await asyncio.sleep(0.3)
+                msg = await self._reply(update, "🗑️")
                 success = self.quiz_manager.delete_question_by_db_id(q_id)
 
                 if success:
@@ -1597,18 +1571,13 @@ class TelegramQuizBot:
             await self._dev.editquiz(update, context)
             return
 
-        msg = await self._reply(update, "📋 <i>Loading question bank...</i>")
-        await asyncio.sleep(0.3)
-
         questions = self.quiz_manager.questions
         if not questions:
-            text = (
-                f"📭 <b>EMPTY BANK</b>\n"
-                f"{UI.LINE}\n\n"
+            await self._reply(update,
+                f"📭  <b>EMPTY BANK</b>\n\n"
                 "  No questions in database.\n"
                 "  Use /addquiz to add some."
             )
-            if msg: await self._edit(msg, text)
             return
 
         total = len(questions)
@@ -1634,7 +1603,7 @@ class TelegramQuizBot:
             f"  /reload    Sync from database"
         )
 
-        if msg: await self._edit(msg, "\n".join(lines))
+        await self._reply(update, "\n".join(lines))
 
     # ─── /dev ────────────────────────────────────────────────
 
@@ -1647,9 +1616,6 @@ class TelegramQuizBot:
         if self._dev and hasattr(self._dev, "dev"):
             await self._dev.dev(update, context)
             return
-
-        msg = await self._reply(update, "🛠️ <i>Loading developer panel...</i>")
-        await asyncio.sleep(0.3)
 
         mention = UI.mention(user.id,
             OWNER_NAME if self._is_owner(user.id) else (user.first_name or "Dev"))
@@ -1708,12 +1674,7 @@ class TelegramQuizBot:
             [InlineKeyboardButton("🔄 Reload",       callback_data="reload_questions"),
              InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
         ])
-        if msg:
-            ok = await self._edit(msg, text, kb)
-            if not ok:
-                await self._reply(update, text, reply_markup=kb)
-        else:
-            await self._reply(update, text, reply_markup=kb)
+        await self._reply(update, text, reply_markup=kb)
 
     # ─── /broadcast ──────────────────────────────────────────
 
@@ -1821,9 +1782,7 @@ class TelegramQuizBot:
 
         mention = UI.mention(user.id,
             OWNER_NAME if self._is_owner(user.id) else (user.first_name or "Admin"))
-        msg = await self._reply(update, "🔄 <i>Syncing from MongoDB...</i>")
-        await asyncio.sleep(0.4)
-
+        msg = await self._reply(update, "🔄")
         try:
             old  = len(self.quiz_manager.questions)
             self.quiz_manager.reload_data()
