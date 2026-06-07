@@ -148,6 +148,31 @@ class UI:
         if n >= 1_000:     return f"{n/1_000:.1f}K"
         return str(n)
 
+    # ── Achievement system ────────────────────────────────────
+    ACHIEVEMENTS = [
+        ("first_quiz",   "🌟", "First Step",       "Answered your first quiz",      lambda s,st,a,t: t >= 1),
+        ("score_10",     "🌱", "Getting Started",  "10 correct answers",             lambda s,st,a,t: s >= 10),
+        ("score_50",     "📈", "Rising Star",      "50 correct answers",             lambda s,st,a,t: s >= 50),
+        ("score_100",    "⚔️",  "Expert",           "100 correct answers",            lambda s,st,a,t: s >= 100),
+        ("score_250",    "🔱", "Master",            "250 correct answers",            lambda s,st,a,t: s >= 250),
+        ("score_500",    "👑", "Legend",            "500 correct answers",            lambda s,st,a,t: s >= 500),
+        ("streak_3",     "🔥", "On Fire",           "3-day answer streak",            lambda s,st,a,t: st >= 3),
+        ("streak_7",     "💫", "Week Warrior",      "7-day streak",                   lambda s,st,a,t: st >= 7),
+        ("streak_30",    "⚡", "Lightning",         "30-day streak",                  lambda s,st,a,t: st >= 30),
+        ("accuracy_80",  "🎯", "Sharp Shooter",    "80%+ accuracy (20+ questions)",  lambda s,st,a,t: a >= 80 and t >= 20),
+        ("perfect_10",   "💎", "Perfect Ten",      "100% on first 10 questions",     lambda s,st,a,t: a >= 100 and t >= 10),
+    ]
+
+    @staticmethod
+    def get_achievements(score: int, streak: int, accuracy: float, total: int):
+        earned, locked = [], []
+        for key, icon, name, desc, check in UI.ACHIEVEMENTS:
+            if check(score, streak, accuracy, total):
+                earned.append((icon, name, desc))
+            else:
+                locked.append((icon, name, desc))
+        return earned, locked
+
 
 # ══════════════════════════════════════════════════════════════
 #  FORUM / TOPIC HELPERS
@@ -204,8 +229,9 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("score",       self.cmd_score))
         app.add_handler(CommandHandler("stats",       self.cmd_stats))
         app.add_handler(CommandHandler("botstats",    self.cmd_botstats))
-        app.add_handler(CommandHandler("leaderboard", self.cmd_leaderboard))
-        app.add_handler(CommandHandler("lb",          self.cmd_leaderboard))
+        app.add_handler(CommandHandler("leaderboard",  self.cmd_leaderboard))
+        app.add_handler(CommandHandler("lb",           self.cmd_leaderboard))
+        app.add_handler(CommandHandler("achievements", self.cmd_achievements))
         app.add_handler(CommandHandler("ping",        self.cmd_ping))
         app.add_handler(CommandHandler("info",        self.cmd_info))
 
@@ -408,7 +434,6 @@ class TelegramQuizBot:
                 f"│  🔥  <b>Streak</b>            :  <b>{streak_d}</b>\n"
                 f"│  🎯  <b>Accuracy</b>         :  <b>{rate}%</b>\n"
                 f"╰──────────────────────────────────────────────╯\n\n"
-                f"  {prog_bar}  <b>{rate}%</b>  Progress\n\n"
                 f"📊  <b>𝐒𝐓𝐀𝐓𝐒</b>\n"
                 f"  ✅  <b>Correct</b>              :  <b>{correct}</b>\n"
                 f"  ❌  <b>Wrong</b>                :  <b>{wrong}</b>\n"
@@ -661,12 +686,16 @@ class TelegramQuizBot:
         correct_id = data.get("correct_option_id")
         chat_id    = data.get("chat_id", 0)
         thread_id  = data.get("thread_id")
-        track_id   = data.get("tracking_id", chat_id)
 
         if correct_id is None or not option_ids:
             return
 
         is_correct = (option_ids[0] == correct_id)
+
+        # Capture rank/level BEFORE recording (to detect promotions)
+        score_before = self.quiz_manager.get_score(user_id)
+        _, grade_before = UI.rank(score_before)
+        level_before = UI.level(score_before)
 
         try:
             self.quiz_manager.record_attempt(user_id, is_correct)
@@ -689,6 +718,58 @@ class TelegramQuizBot:
                 })
             except Exception as e:
                 logger.error(f"DB poll_answer: {e}")
+
+        # Send milestone notification (PM only, non-intrusive)
+        if is_correct:
+            score_after = self.quiz_manager.get_score(user_id)
+            _, grade_after = UI.rank(score_after)
+            level_after = UI.level(score_after)
+            stats_after = self.quiz_manager.get_user_stats(user_id)
+            streak = stats_after.get("current_streak", 0)
+
+            notif = None
+            # Rank promotion
+            if grade_after != grade_before:
+                rank_txt, _ = UI.rank(score_after)
+                notif = (
+                    f"🎉  <b>RANK UP!</b>\n\n"
+                    f"  You've been promoted to\n"
+                    f"  <b>{rank_txt}</b>  🏆\n\n"
+                    f"  Score: <b>{score_after} correct</b>\n"
+                    f"  Keep dominating! 💪"
+                )
+            # Level up
+            elif level_after != level_before:
+                notif = (
+                    f"⬆️  <b>LEVEL UP!</b>\n\n"
+                    f"  You reached  <b>{level_after}</b>  ✨\n\n"
+                    f"  Score: <b>{score_after} correct</b>\n"
+                    f"  On your way to the top! 🚀"
+                )
+            # Streak milestones
+            elif streak in (3, 7, 14, 30, 50, 100):
+                streak_msgs = {
+                    3: ("🔥", "3-Day Streak!", "You're on fire!"),
+                    7: ("💫", "Week Warrior!", "7 days strong!"),
+                    14: ("⚡", "Two Weeks!", "Unstoppable streak!"),
+                    30: ("🌟", "Month Master!", "30 days — incredible!"),
+                    50: ("💎", "Elite Streak!", "50 days of dedication!"),
+                    100: ("👑", "Century!", "100-day legend streak!"),
+                }
+                icon, title, sub = streak_msgs[streak]
+                notif = (
+                    f"{icon}  <b>{title}</b>\n\n"
+                    f"  {sub}\n"
+                    f"  🔥 <b>{streak} day streak</b>  maintained!\n\n"
+                    f"  Keep the momentum! 💪"
+                )
+
+            if notif:
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id, text=notif, parse_mode="HTML")
+                except Exception:
+                    pass
 
     # ─── /score ──────────────────────────────────────────────
 
@@ -819,6 +900,54 @@ class TelegramQuizBot:
         else:
             await self._reply(update, text, reply_markup=kb)
 
+    # ─── /achievements ───────────────────────────────────────
+
+    async def cmd_achievements(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user    = update.effective_user
+        mention = UI.mention(user.id, user.first_name or "User")
+        score   = self.quiz_manager.get_score(user.id)
+        stats   = self.quiz_manager.get_user_stats(user.id)
+        streak  = stats.get("current_streak", 0)
+        rate    = stats.get("success_rate", 0)
+        total   = stats.get("total_quizzes", 0)
+
+        earned, locked = UI.get_achievements(score, streak, float(rate), total)
+        n_earned = len(earned)
+        n_total  = len(UI.ACHIEVEMENTS)
+        prog     = UI.pbar(int(n_earned / n_total * 100))
+
+        lines = [
+            f"🏅  <b>𝐀𝐂𝐇𝐈𝐄𝐕𝐄𝐌𝐄𝐍𝐓𝐒</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"  {mention}\n\n"
+            f"  {prog}  <b>{n_earned} / {n_total}</b> unlocked\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        ]
+
+        if earned:
+            lines.append(f"\n✅  <b>EARNED</b>\n")
+            for icon, name, desc in earned:
+                lines.append(f"  {icon}  <b>{name}</b>  —  <i>{desc}</i>")
+
+        if locked:
+            lines.append(f"\n🔒  <b>LOCKED</b>\n")
+            for icon, name, desc in locked[:6]:
+                lines.append(f"  ░  <b>{name}</b>  —  <i>{desc}</i>")
+            if len(locked) > 6:
+                lines.append(f"  <i>… and {len(locked)-6} more to discover</i>")
+
+        lines.append(
+            f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  <i>Keep playing to unlock all achievements! 🎯</i>"
+        )
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎯 Play Quiz",   callback_data="play_quiz"),
+             InlineKeyboardButton("📊 My Stats",    callback_data="my_stats")],
+            [InlineKeyboardButton("🏠 Home",         callback_data="back_start")],
+        ])
+        await self._reply(update, "\n".join(lines), reply_markup=kb)
+
     # ─── /botstats ───────────────────────────────────────────
 
     async def cmd_botstats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -888,62 +1017,46 @@ class TelegramQuizBot:
         def acc(c, t): return f"{round(c/t*100,1)}%" if t else "—"
 
         text = (
-            f"📊 <b>BOT ANALYTICS</b>\n"
-            f"{UI.LINE}\n\n"
+            f"📊  <b>𝐁𝐎𝐓  𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-            f"<b>👥 USERS</b>\n"
-            f"{UI.THIN}\n"
-            f"  Total      ›  <b>{UI.fmt_num(u_total)}</b>\n"
-            f"  Active 24h ›  <b>{u_active_d}</b>\n"
-            f"  Active 7d  ›  <b>{u_active_w}</b>\n"
-            f"  New today  ›  <b>+{u_new_d}</b>\n"
-            f"  New 7 days ›  <b>+{u_new_w}</b>\n"
-            f"  New 30 days›  <b>+{u_new_m}</b>\n\n"
+            f"👥  <b>𝐔𝐒𝐄𝐑𝐒</b>\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  Total          ›  <b>{UI.fmt_num(u_total)}</b>\n"
+            f"│  Active 24h     ›  <b>{u_active_d}</b>\n"
+            f"│  Active 7d      ›  <b>{u_active_w}</b>\n"
+            f"│  New Today      ›  <b>+{u_new_d}</b>\n"
+            f"│  New This Week  ›  <b>+{u_new_w}</b>\n"
+            f"│  New This Month ›  <b>+{u_new_m}</b>\n"
+            f"╰──────────────────────────────────────╯\n\n"
 
-            f"<b>💬 GROUPS</b>\n"
-            f"{UI.THIN}\n"
-            f"  Total      ›  <b>{UI.fmt_num(g_total)}</b>\n"
-            f"  New today  ›  <b>+{g_new_d}</b>\n"
-            f"  New 7 days ›  <b>+{g_new_w}</b>\n"
-            f"  New 30 days›  <b>+{g_new_m}</b>\n\n"
+            f"💬  <b>𝐆𝐑𝐎𝐔𝐏𝐒</b>\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  Total          ›  <b>{UI.fmt_num(g_total)}</b>\n"
+            f"│  New Today      ›  <b>+{g_new_d}</b>\n"
+            f"│  New This Week  ›  <b>+{g_new_w}</b>\n"
+            f"│  New This Month ›  <b>+{g_new_m}</b>\n"
+            f"╰──────────────────────────────────────╯\n\n"
 
-            f"<b>📚 QUESTIONS</b>\n"
-            f"{UI.THIN}\n"
-            f"  In bank    ›  <b>{UI.fmt_num(q_total)}</b>\n\n"
+            f"📚  <b>𝐐𝐔𝐄𝐒𝐓𝐈𝐎𝐍  𝐁𝐀𝐍𝐊</b>  ›  <b>{UI.fmt_num(q_total)}</b> questions\n\n"
 
-            f"<b>🎯 QUIZ ACTIVITY — 24h</b>\n"
-            f"{UI.THIN}\n"
-            f"  Attempts   ›  <b>{d_q}</b>   Correct ›  <b>{d_c}</b>\n"
-            f"  Accuracy   ›  <b>{acc(d_c, d_q)}</b>\n"
-            f"  Players    ›  <b>{len(d_players)}</b>\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-            f"<b>🎯 QUIZ ACTIVITY — 7 days</b>\n"
-            f"{UI.THIN}\n"
-            f"  Attempts   ›  <b>{w_q}</b>   Correct ›  <b>{w_c}</b>\n"
-            f"  Accuracy   ›  <b>{acc(w_c, w_q)}</b>\n"
-            f"  Players    ›  <b>{len(w_players)}</b>\n\n"
+            f"🎯  <b>QUIZ ACTIVITY</b>\n\n"
+            f"  <b>24h</b>   ›  <b>{d_q}</b> attempts  ·  <b>{d_c}</b> correct  ·  <b>{acc(d_c, d_q)}</b>  ·  <b>{len(d_players)}</b> players\n"
+            f"  <b>7d</b>    ›  <b>{w_q}</b> attempts  ·  <b>{w_c}</b> correct  ·  <b>{acc(w_c, w_q)}</b>  ·  <b>{len(w_players)}</b> players\n"
+            f"  <b>30d</b>   ›  <b>{m_q}</b> attempts  ·  <b>{m_c}</b> correct  ·  <b>{acc(m_c, m_q)}</b>  ·  <b>{len(m_players)}</b> players\n"
+            f"  <b>All</b>   ›  <b>{UI.fmt_num(a_q)}</b> attempts  ·  <b>{UI.fmt_num(a_c)}</b> correct  ·  <b>{acc(a_c, a_q)}</b>\n\n"
 
-            f"<b>🎯 QUIZ ACTIVITY — 30 days</b>\n"
-            f"{UI.THIN}\n"
-            f"  Attempts   ›  <b>{m_q}</b>   Correct ›  <b>{m_c}</b>\n"
-            f"  Accuracy   ›  <b>{acc(m_c, m_q)}</b>\n"
-            f"  Players    ›  <b>{len(m_players)}</b>\n\n"
-
-            f"<b>🏆 ALL TIME</b>\n"
-            f"{UI.THIN}\n"
-            f"  Attempts   ›  <b>{UI.fmt_num(a_q)}</b>   Correct ›  <b>{UI.fmt_num(a_c)}</b>\n"
-            f"  Accuracy   ›  <b>{acc(a_c, a_q)}</b>\n\n"
-
-            f"{UI.LINE}\n"
-            f"  <i>CLAT Vision Quiz Bot Analytics</i>"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  <i>⚡ {COMMUNITY}  ·  CLAT Vision Analytics</i>"
         )
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🟢 Play Quiz", callback_data="play_quiz"),
-        ]])
         if msg:
-            await self._edit(msg, text, kb)
+            ok = await self._edit(msg, text)
+            if not ok:
+                await self._reply(update, text)
         else:
-            await self._reply(update, text, reply_markup=kb)
+            await self._reply(update, text)
 
     # ─── /leaderboard ────────────────────────────────────────
 
@@ -1442,24 +1555,31 @@ class TelegramQuizBot:
                 pass
 
         text = (
-            f"🛠️ <b>DEVELOPER PANEL</b>\n"
-            f"{UI.LINE}\n\n"
+            f"👑  <b>𝐀𝐃𝐌𝐈𝐍  𝐏𝐀𝐍𝐄𝐋</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"  {mention}\n\n"
-            f"<b>LIVE STATS</b>\n"
-            f"{UI.THIN}\n"
-            f"  Questions    ›  <b>{q_count}</b>\n"
-            f"  Users        ›  <b>{users}</b>\n"
-            f"  Groups       ›  <b>{groups}</b>\n"
-            f"  Active Chats ›  <b>{chats}</b>\n\n"
-            f"<b>COMMANDS</b>\n"
-            f"{UI.THIN}\n"
-            f"  /addquiz   /delquiz   /editquiz\n"
-            f"  /broadcast /reload    /restart\n"
-            f"  /devstats  /activity  /performance\n\n"
-            f"{UI.LINE}\n"
-            f"  Owner ID: <code>{OWNER_ID}</code>"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  📚  Questions     ›  <b>{q_count}</b>\n"
+            f"│  👥  Users         ›  <b>{users}</b>\n"
+            f"│  💬  Groups        ›  <b>{groups}</b>\n"
+            f"│  ⚡  Active Chats  ›  <b>{chats}</b>\n"
+            f"│  🆔  Owner ID      ›  <code>{OWNER_ID}</code>\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🔧  <b>𝐂𝐎𝐌𝐌𝐀𝐍𝐃𝐒</b>\n\n"
+            f"  📝  /addquiz  · /delquiz  · /editquiz\n"
+            f"  📥  /importquiz  · /reload  · /restart\n"
+            f"  📡  /broadcast\n"
+            f"  📊  /botstats  · /devstats  · /dev\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  <i>⚡ CLAT Vision Admin Center</i>"
         )
-        if msg: await self._edit(msg, text)
+        if msg:
+            ok = await self._edit(msg, text)
+            if not ok:
+                await self._reply(update, text)
+        else:
+            await self._reply(update, text)
 
     # ─── /broadcast ──────────────────────────────────────────
 
