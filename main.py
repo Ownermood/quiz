@@ -73,7 +73,8 @@ def cleanup_webhook_sync(token: str):
                     logger.warning(f"Webhook cleanup attempt {attempt+1}/3: {e}")
                     await asyncio.sleep(3)
                 else:
-                    raise RuntimeError(f"Webhook cleanup failed: {e}")
+                    logger.warning(f"Webhook cleanup skipped (network timeout) — continuing in polling mode")
+                    return
     asyncio.run(_cleanup())
 
 
