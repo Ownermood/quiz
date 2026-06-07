@@ -1916,26 +1916,30 @@ class TelegramQuizBot:
             return
 
         text = (
-            f"📥  <b>𝐁𝐔𝐋𝐊  𝐈𝐌𝐏𝐎𝐑𝐓</b>\n"
+            f"📥  <b>𝐔𝐍𝐈𝐕𝐄𝐑𝐒𝐀𝐋  𝐈𝐌𝐏𝐎𝐑𝐓  𝐄𝐍𝐆𝐈𝐍𝐄</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"  Send a <b>.txt file</b> to this chat.\n\n"
+            f"  Send a <b>.txt file</b> — any format.\n\n"
             f"📋  <b>𝐅𝐎𝐑𝐌𝐀𝐓𝐒  𝐒𝐔𝐏𝐏𝐎𝐑𝐓𝐄𝐃</b>\n"
             f"╭──────────────────────────────────────╮\n"
-            f"│  ◈  Numbered   —  1. / Q1:\n"
-            f"│  ◈  Options    —  A) B) C) D)\n"
-            f"│  ◈  Answer     —  Answer: B / Ans: 2\n"
-            f"│  ◈  Inline     —  All on same line\n"
-            f"│  ◈  Asterisk   —  C) opt *\n"
+            f"│  ◈  Inline MCQ  — Q+opts+ans one line\n"
+            f"│  ◈  Multi-line  — opts on sep. lines\n"
+            f"│  ◈  Answer key  — at end / per chapter\n"
+            f"│  ◈  Solution bk — with explanations\n"
+            f"│  ◈  True/False  — auto-converted\n"
+            f"│  ◈  Exam PDFs   — OCR noise removed\n"
+            f"│  ◈  Mixed files — all types together\n"
             f"╰──────────────────────────────────────╯\n\n"
-            f"🛡  <b>𝐏𝐑𝐎𝐓𝐄𝐂𝐓𝐈𝐎𝐍</b>\n"
+            f"🧠  <b>𝐀𝐔𝐓𝐎  𝐃𝐄𝐓𝐄𝐂𝐓𝐈𝐎𝐍</b>\n"
             f"╭──────────────────────────────────────╮\n"
-            f"│  ✅  Duplicate detection\n"
-            f"│  ✅  Format validation\n"
+            f"│  ✅  End-of-file answer key matching\n"
+            f"│  ✅  Chapter-end answer key matching\n"
+            f"│  ✅  Answer text → option mapping\n"
+            f"│  ✅  Duplicate & near-dupe detection\n"
             f"│  ✅  Auto category tagging\n"
-            f"│  ✅  Full import report\n"
+            f"│  ✅  PDF noise / page# removal\n"
             f"╰──────────────────────────────────────╯\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  <i>Send your .txt file to begin →</i>"
+            f"  <i>Drop any .txt question bank to begin →</i>"
         )
         await self._reply(update, text)
 
@@ -2037,31 +2041,44 @@ class TelegramQuizBot:
                 )
             return
 
-        detected = result.get("total_detected", 0)
-        imported = result.get("imported", 0)
-        skipped  = result.get("skipped", 0)
-        failed   = result.get("failed", 0)
-        errors   = result.get("errors", [])
-        total_q  = len(self.quiz_manager.questions)
+        detected    = result.get("total_detected", 0)
+        imported    = result.get("imported", 0)
+        skipped     = result.get("skipped", 0)
+        failed      = result.get("failed", 0)
+        errors      = result.get("errors", [])
+        auto_fixed  = result.get("auto_fixed", 0)
+        key_applied = result.get("key_applied", 0)
+        fmt         = result.get("format_detected", "MCQ")
+        lines_scnd  = result.get("lines_scanned", 0)
+        total_q     = len(self.quiz_manager.questions)
 
         rate = int(imported / max(detected, 1) * 100)
+
+        extra = ""
+        if key_applied:
+            extra += f"│  🗝  Key Match  ›  <b>{key_applied}</b> answers from key\n"
+        if auto_fixed:
+            extra += f"│  🔧  Repaired   ›  <b>{auto_fixed}</b> auto-fixed\n"
 
         text_out = (
             f"📊  <b>𝐈𝐌𝐏𝐎𝐑𝐓  𝐑𝐄𝐏𝐎𝐑𝐓</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"  By {mention}\n"
-            f"  📄 <code>{fname}</code>\n\n"
+            f"  📄 <code>{fname}</code>\n"
+            f"  🧠 <i>{fmt}</i>\n\n"
             f"╭──────────────────────────────────────╮\n"
-            f"│  🔍  Detected  ›  <b>{detected}</b>\n"
+            f"│  📄  Scanned   ›  <b>{lines_scnd}</b> lines\n"
+            f"│  🔍  Detected  ›  <b>{detected}</b> questions\n"
             f"│  ✅  Imported  ›  <b>{imported}</b>\n"
             f"│  ⏭  Skipped   ›  <b>{skipped}</b>  <i>(duplicates)</i>\n"
-            f"│  ❌  Failed    ›  <b>{failed}</b>\n"
+            f"{extra}"
+            f"│  ❌  Invalid   ›  <b>{failed}</b>\n"
             f"│  📦  Total DB  ›  <b>{total_q}</b>\n"
             f"╰──────────────────────────────────────╯\n\n"
             f"  {UI.pbar(rate)}  <b>{rate}%</b> success rate\n"
         )
         if errors:
-            text_out += f"\n<b>Errors:</b>\n"
+            text_out += f"\n<b>Issues:</b>\n"
             for err in errors[:3]:
                 text_out += f"  <code>{str(err)[:65]}</code>\n"
 
