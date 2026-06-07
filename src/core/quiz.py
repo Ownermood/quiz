@@ -258,7 +258,8 @@ class QuizManager:
             self._init_user_stats(uid)
 
         s     = self.stats[uid]
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        yesterday = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
 
         s["total_quizzes"] += 1
         if today not in s["daily_activity"]:
@@ -270,10 +271,10 @@ class QuizManager:
             s["daily_activity"][today]["correct"] += 1
             self.scores[user_id]   = self.scores.get(user_id, 0) + 1
 
-            if s["last_correct_date"] == today:
-                s["current_streak"] += 1
-            elif s.get("last_correct_date") == (
-                datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"):
+            last = s.get("last_correct_date")
+            if last == today:
+                pass  # already counted today, keep streak unchanged
+            elif last == yesterday:
                 s["current_streak"] += 1
             else:
                 s["current_streak"] = 1
@@ -447,6 +448,3 @@ class QuizManager:
         except ValueError:
             pass
 
-    def _initialize_available_questions(self, chat_id: int):
-        self.available_questions[chat_id] = list(range(len(self.questions)))
-        random.shuffle(self.available_questions[chat_id])

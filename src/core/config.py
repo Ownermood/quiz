@@ -76,7 +76,7 @@ class Config:
         telegram_token = os.environ.get("TELEGRAM_TOKEN", "")
         session_secret = os.environ.get("SESSION_SECRET", "")
         
-        owner_id = int(os.environ.get("OWNER_ID", "8403136097"))
+        owner_id = int(os.environ.get("OWNER_ID", "0"))
         if owner_id == 0 and validate:
             logger.warning("⚠️ OWNER_ID not set - bot will work but admin features disabled")
         
@@ -165,7 +165,7 @@ class Config:
             users.append(self.wifu_id)
         return users
 
-OWNER_ID = int(os.environ.get("OWNER_ID", "8403136097"))
+OWNER_ID = int(os.environ.get("OWNER_ID", "0"))
 WIFU_ID = None
 wifu_id_str = os.environ.get("WIFU_ID")
 if wifu_id_str:
