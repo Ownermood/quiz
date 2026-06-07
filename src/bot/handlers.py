@@ -1760,10 +1760,6 @@ class TelegramQuizBot:
             await self._unauthorized(update)
             return
 
-        if self._dev and hasattr(self._dev, "broadcast"):
-            await self._dev.broadcast(update, context)
-            return
-
         raw = (update.effective_message.text or "")\
             .replace("/broadcast", "").replace("/bc", "").strip()
 
