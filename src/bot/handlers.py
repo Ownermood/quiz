@@ -269,8 +269,9 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("delquiz",     self.cmd_delquiz))
         app.add_handler(CommandHandler("editquiz",    self.cmd_editquiz))
         app.add_handler(CommandHandler("dev",         self.cmd_dev))
-        app.add_handler(CommandHandler("broadcast",   self.cmd_broadcast))
-        app.add_handler(CommandHandler("bc",          self.cmd_broadcast))
+        app.add_handler(CommandHandler("broadcast",    self.cmd_broadcast))
+        app.add_handler(CommandHandler("bc",           self.cmd_broadcast))
+        app.add_handler(CommandHandler("delbroadcast", self.cmd_delbroadcast))
         app.add_handler(CommandHandler("reload",      self.cmd_reload))
         app.add_handler(CommandHandler("restart",     self.cmd_restart))
 
@@ -551,8 +552,9 @@ class TelegramQuizBot:
             f"│  /editquiz     ›  Edit question\n"
             f"│  /delquiz      ›  Delete question\n"
             f"│  /importquiz  ›  Bulk import (.txt)\n"
-            f"│  /broadcast   ›  Message everyone\n"
-            f"│  /bc              ›  Broadcast shortcut\n"
+            f"│  /broadcast      ›  Message everyone\n"
+            f"│  /bc                 ›  Broadcast shortcut\n"
+            f"│  /delbroadcast  ›  Delete last broadcast\n"
             f"│  /botstats    ›  Platform analytics\n"
             f"│  /devstats    ›  Developer metrics\n"
             f"│  /reload        ›  Sync from database\n"
@@ -1723,8 +1725,9 @@ class TelegramQuizBot:
 
             f"🛠️  <b>𝐒𝐘𝐒𝐓𝐄𝐌  &amp;  𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓</b>\n"
             f"╭──────────────────────────────────────────╮\n"
-            f"│  /broadcast  ›  Message all users\n"
-            f"│  /reload      ›  Reload questions\n"
+            f"│  /broadcast       ›  Message all users\n"
+            f"│  /delbroadcast  ›  Delete last broadcast\n"
+            f"│  /reload           ›  Reload questions\n"
             f"│  /restart     ›  Restart bot\n"
             f"╰──────────────────────────────────────────╯\n\n"
 
@@ -1760,10 +1763,11 @@ class TelegramQuizBot:
             await self._unauthorized(update)
             return
 
-        raw = (update.effective_message.text or "")\
-            .replace("/broadcast", "").replace("/bc", "").strip()
+        msg      = update.effective_message
+        reply_to = msg.reply_to_message if msg else None
+        raw      = (msg.text or "").replace("/broadcast", "").replace("/bc", "").strip() if msg else ""
 
-        if not raw:
+        if not raw and not reply_to:
             await self._reply(update,
                 f"📡  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1771,9 +1775,10 @@ class TelegramQuizBot:
                 f"│  Send to all users &amp; groups at once\n"
                 f"╰──────────────────────────────────────╯\n\n"
                 f"  <b>Usage:</b>\n"
-                f"  <code>/broadcast Your message here</code>\n\n"
-                f"  Supports HTML:  <code>&lt;b&gt;</code>  <code>&lt;i&gt;</code>  <code>&lt;code&gt;</code>\n"
-                f"  Alias:  <code>/bc</code>"
+                f"  <code>/broadcast Your message here</code>\n"
+                f"  ↳ or reply to any message with /broadcast\n\n"
+                f"  Supports HTML  ·  Alias: <code>/bc</code>\n"
+                f"  Delete last broadcast: <code>/delbroadcast</code>"
             )
             return
 
@@ -1784,11 +1789,13 @@ class TelegramQuizBot:
         users  = self.db.get_pm_accessible_users()
         groups = self.db.get_all_groups()
         total  = len(users) + len(groups)
+        mode_label = "📨 Forward message" if reply_to else "📝 Text message"
 
         status = await self._reply(update,
             f"📡  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓𝐈𝐍𝐆</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"╭──────────────────────────────────────╮\n"
+            f"│  {mode_label}\n"
             f"│  👥  Users   ›  <b>{len(users)}</b>\n"
             f"│  💬  Groups  ›  <b>{len(groups)}</b>\n"
             f"│  📊  Total   ›  <b>{total}</b> recipients\n"
@@ -1797,10 +1804,19 @@ class TelegramQuizBot:
         )
 
         sent = failed = 0
+        sent_msgs: dict = {}
+        from_cid  = reply_to.chat_id     if reply_to else None
+        from_mid  = reply_to.message_id  if reply_to else None
+
         for u in users:
             try:
-                await context.bot.send_message(
-                    chat_id=u["user_id"], text=raw, parse_mode=ParseMode.HTML)
+                if reply_to:
+                    m = await context.bot.copy_message(
+                        chat_id=u["user_id"], from_chat_id=from_cid, message_id=from_mid)
+                else:
+                    m = await context.bot.send_message(
+                        chat_id=u["user_id"], text=raw, parse_mode=ParseMode.HTML)
+                sent_msgs[str(u["user_id"])] = m.message_id
                 sent += 1
                 await asyncio.sleep(0.05)
             except (Forbidden, BadRequest):
@@ -1812,16 +1828,26 @@ class TelegramQuizBot:
         for g in groups:
             tid = g.get("message_thread_id")
             try:
-                kwargs = {"chat_id": g["chat_id"], "text": raw, "parse_mode": ParseMode.HTML}
-                if tid: kwargs["message_thread_id"] = tid
-                await context.bot.send_message(**kwargs)
+                if reply_to:
+                    m = await context.bot.copy_message(
+                        chat_id=g["chat_id"], from_chat_id=from_cid, message_id=from_mid)
+                else:
+                    kwargs = {"chat_id": g["chat_id"], "text": raw, "parse_mode": ParseMode.HTML}
+                    if tid: kwargs["message_thread_id"] = tid
+                    m = await context.bot.send_message(**kwargs)
+                sent_msgs[str(g["chat_id"])] = m.message_id
                 sent += 1
                 await asyncio.sleep(0.05)
             except TelegramError as e:
                 if any(w in str(e).lower() for w in ("topic", "closed", "thread")):
                     try:
-                        await context.bot.send_message(
-                            chat_id=g["chat_id"], text=raw, parse_mode=ParseMode.HTML)
+                        if reply_to:
+                            m = await context.bot.copy_message(
+                                chat_id=g["chat_id"], from_chat_id=from_cid, message_id=from_mid)
+                        else:
+                            m = await context.bot.send_message(
+                                chat_id=g["chat_id"], text=raw, parse_mode=ParseMode.HTML)
+                        sent_msgs[str(g["chat_id"])] = m.message_id
                         sent += 1
                     except Exception:
                         failed += 1
@@ -1831,18 +1857,103 @@ class TelegramQuizBot:
                 logger.error(f"BC group {g.get('chat_id')}: {e}")
                 failed += 1
 
+        # Save for /delbroadcast
+        if sent_msgs:
+            try:
+                self.db.save_broadcast({
+                    "broadcast_id": f"bc_{int(time.time())}_{user.id}",
+                    "admin_id":     user.id,
+                    "messages":     sent_msgs,
+                    "type":         "reply" if reply_to else "text",
+                })
+            except Exception as e:
+                logger.warning(f"save_broadcast: {e}")
+
         rate = int(sent / total * 100) if total else 0
+        result_text = (
+            f"✅  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓  𝐂𝐎𝐌𝐏𝐋𝐄𝐓𝐄</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  ✅  Sent     ›  <b>{sent}</b>\n"
+            f"│  ❌  Failed   ›  <b>{failed}</b>\n"
+            f"│  📊  Total    ›  <b>{total}</b>\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"  {UI.pbar(rate)}  <b>{rate}%</b> delivery rate\n\n"
+            f"  🗑  To undo: <code>/delbroadcast</code>"
+        )
         if status:
-            await self._edit(status,
-                f"✅  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓  𝐂𝐎𝐌𝐏𝐋𝐄𝐓𝐄</b>\n"
+            ok = await self._edit(status, result_text)
+            if not ok:
+                await self._reply(update, result_text)
+        else:
+            await self._reply(update, result_text)
+
+    # ─── /delbroadcast ────────────────────────────────────────
+
+    async def cmd_delbroadcast(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if not self._is_owner(user.id):
+            await self._unauthorized(update)
+            return
+
+        if not self.db:
+            await self._reply(update, "❌ Database not available.")
+            return
+
+        bc = self.db.get_latest_broadcast()
+        if not bc or not bc.get("messages"):
+            await self._reply(update,
+                f"🗑  <b>𝐃𝐄𝐋𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"╭──────────────────────────────────────╮\n"
-                f"│  ✅  Sent     ›  <b>{sent}</b>\n"
-                f"│  ❌  Failed   ›  <b>{failed}</b>\n"
-                f"│  📊  Total    ›  <b>{total}</b>\n"
-                f"╰──────────────────────────────────────╯\n\n"
-                f"  {UI.pbar(rate)}  <b>{rate}%</b> delivery rate"
+                f"  ❌  No broadcast found to delete."
             )
+            return
+
+        msgs  = bc.get("messages", {})
+        total = len(msgs)
+        bc_type = bc.get("type", "text")
+
+        status = await self._reply(update,
+            f"🗑  <b>𝐃𝐄𝐋𝐄𝐓𝐈𝐍𝐆  𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"  📊  {total} messages to delete...\n"
+            f"  ⏳  Working..."
+        )
+
+        deleted = failed = 0
+        for chat_id_str, msg_id in msgs.items():
+            try:
+                await context.bot.delete_message(
+                    chat_id=int(chat_id_str), message_id=msg_id)
+                deleted += 1
+                await asyncio.sleep(0.04)
+            except Exception:
+                failed += 1
+
+        try:
+            bid = bc.get("id")
+            if bid is not None:
+                self.db.delete_broadcast(bid)
+        except Exception as e:
+            logger.warning(f"delete_broadcast DB: {e}")
+
+        rate = int(deleted / total * 100) if total else 0
+        result_text = (
+            f"🗑  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓  𝐃𝐄𝐋𝐄𝐓𝐄𝐃</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  🗑  Deleted  ›  <b>{deleted}</b>\n"
+            f"│  ❌  Failed   ›  <b>{failed}</b>  <i>(already gone)</i>\n"
+            f"│  📊  Total    ›  <b>{total}</b>\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"  {UI.pbar(rate)}  <b>{rate}%</b> removed"
+        )
+        if status:
+            ok = await self._edit(status, result_text)
+            if not ok:
+                await self._reply(update, result_text)
+        else:
+            await self._reply(update, result_text)
 
     # ─── /reload ─────────────────────────────────────────────
 

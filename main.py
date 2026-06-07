@@ -132,6 +132,38 @@ def run_polling_mode(config: Config):
         async with bot.application:
             await bot.application.start()
             scheduler.start()
+
+            # ── Startup greeting to owner ──────────────────────
+            try:
+                from src.core.config import OWNER_ID
+                if OWNER_ID:
+                    total_q = len(quiz_mgr.questions)
+                    total_u = db_mgr.get_total_users() if db_mgr else 0
+                    total_g = len(db_mgr.get_all_groups()) if db_mgr else 0
+                    now     = datetime.now().strftime("%d %b %Y  •  %I:%M %p")
+                    greeting = (
+                        f"╔══════════════════════════════════════╗\n"
+                        f"║   🚀  <b>𝐁𝐎𝐓  𝐈𝐒  𝐋𝐈𝐕𝐄</b>  ·  CLAT Vision   ║\n"
+                        f"╚══════════════════════════════════════╝\n\n"
+                        f"  👋  Assalamu Alaikum, {chr(127804)} <b>Owner</b>!\n"
+                        f"  Bot started successfully.\n\n"
+                        f"╭──────────────────────────────────────╮\n"
+                        f"│  🕒  {now}\n"
+                        f"│  📚  Questions  ›  <b>{total_q:,}</b>\n"
+                        f"│  👥  Users      ›  <b>{total_u:,}</b>\n"
+                        f"│  💬  Groups     ›  <b>{total_g:,}</b>\n"
+                        f"╰──────────────────────────────────────╯\n\n"
+                        f"  ⚡  All systems operational\n"
+                        f"  📡  Ready to serve CLAT aspirants!"
+                    )
+                    await bot.application.bot.send_message(
+                        chat_id=OWNER_ID,
+                        text=greeting,
+                        parse_mode="HTML"
+                    )
+                    logger.info("✅ Startup greeting sent to owner")
+            except Exception as e:
+                logger.warning(f"Startup greeting failed: {e}")
             await bot.application.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=["message", "poll_answer", "callback_query"],
