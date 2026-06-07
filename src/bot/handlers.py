@@ -543,12 +543,17 @@ class TelegramQuizBot:
 
             f"👑  <b>𝐀𝐃𝐌𝐈𝐍  𝐂𝐄𝐍𝐓𝐄𝐑</b>  <i>· Owner &amp; Devs only</i>\n"
             f"╭──────────────────────────────────────────╮\n"
-            f"│  /dev          ›  Admin panel\n"
-            f"│  /addquiz     ›  Add question\n"
-            f"│  /importquiz ›  Bulk import (.txt)\n"
-            f"│  /broadcast  ›  Message everyone\n"
-            f"│  /botstats   ›  Platform analytics\n"
-            f"│  /reload       ›  Sync from database\n"
+            f"│  /dev           ›  Admin panel\n"
+            f"│  /addquiz      ›  Add question\n"
+            f"│  /editquiz     ›  Edit question\n"
+            f"│  /delquiz      ›  Delete question\n"
+            f"│  /importquiz  ›  Bulk import (.txt)\n"
+            f"│  /broadcast   ›  Message everyone\n"
+            f"│  /bc              ›  Broadcast shortcut\n"
+            f"│  /botstats    ›  Platform analytics\n"
+            f"│  /devstats    ›  Developer metrics\n"
+            f"│  /reload        ›  Sync from database\n"
+            f"│  /restart       ›  Restart bot\n"
             f"╰──────────────────────────────────────────╯\n\n"
 
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -562,7 +567,8 @@ class TelegramQuizBot:
              InlineKeyboardButton("🎖 Achievements",  callback_data="achievements")],
             [InlineKeyboardButton("🏠 Home",           callback_data="back_start")],
         ])
-        await self._reply(update, text, reply_markup=kb)
+        await self._reply(update, text, reply_markup=kb,
+                          disable_web_page_preview=True)
 
     # ─── /ping ───────────────────────────────────────────────
 
