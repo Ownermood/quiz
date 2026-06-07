@@ -63,6 +63,9 @@ uv.lock
 .DS_Store
 Thumbs.db
 
+# Claude Code internal
+.claude/
+
 # Temporary & attached files
 attached_assets/
 *.tmp
