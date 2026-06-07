@@ -368,16 +368,15 @@ class TelegramQuizBot:
             return False
 
     async def _unauthorized(self, update: Update):
-        """Professional access denied — auto-deletes after 7s."""
         user    = update.effective_user
         mention = UI.mention(user.id, user.first_name or "User")
         text = (
-            f"🔒 <b>ACCESS RESTRICTED</b>\n"
-            f"{UI.LINE}\n\n"
-            f"  {mention}, this command requires\n"
-            f"  elevated privileges.\n\n"
-            f"  ◈ Owner or Developer access only.\n\n"
-            f"{UI.THIN}\n"
+            f"🔒  <b>𝐀𝐂𝐂𝐄𝐒𝐒  𝐃𝐄𝐍𝐈𝐄𝐃</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  {mention}\n"
+            f"│  This command requires admin access.\n"
+            f"╰──────────────────────────────────────╯\n\n"
             f"  <i>Contact {COMMUNITY} for access.</i>"
         )
         msg = await self._reply(update, text)
@@ -443,7 +442,6 @@ class TelegramQuizBot:
         rank_pos        = self._get_user_rank_position(user.id)
         rank_line       = f"#{rank_pos} Global" if rank_pos else "Not Ranked Yet"
 
-        prog_bar = UI.pbar(rate)
         streak_d = f"{streak} Days" if streak > 0 else "0 Days"
 
         if is_pm:
@@ -471,10 +469,19 @@ class TelegramQuizBot:
                 f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
             )
         else:
+            q_count = len(self.quiz_manager.questions)
             text = (
-                f"🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Quiz Academy\n\n"
-                f"🌟  <b>Welcome,</b>  {mention}!\n"
-                f"<i>Use /quiz to start practising!</i>"
+                f"🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Quiz Academy\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"👋  Welcome, {mention}!\n\n"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  📚  Questions    ›  <b>{q_count}+</b> available\n"
+                f"│  🎯  Start Quiz  ›  /quiz\n"
+                f"│  📊  Your Stats  ›  /score\n"
+                f"│  🏆  Rankings    ›  /leaderboard\n"
+                f"│  📋  All Topics  ›  /categories\n"
+                f"╰──────────────────────────────────────╯\n\n"
+                f"  <i>Compete, climb the ranks, ace CLAT! 🚀</i>"
             )
 
         kb = InlineKeyboardMarkup([
@@ -663,16 +670,21 @@ class TelegramQuizBot:
 
         if not question:
             cat_e = UI.cat_emoji(category)
+            cat_line = f"│  {cat_e}  Category  ›  <b>{category}</b>\n" if category else ""
             text  = (
-                f"📭 <b>No Questions Found</b>\n"
-                f"{UI.LINE}\n\n"
-                + (f"  {cat_e} Category: <b>{category}</b>\n\n" if category else "")
-                + "  The question bank is empty.\n\n"
-                "  Use /addquiz to add questions."
+                f"📭  <b>𝐍𝐎  𝐐𝐔𝐄𝐒𝐓𝐈𝐎𝐍𝐒  𝐅𝐎𝐔𝐍𝐃</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"╭──────────────────────────────────────╮\n"
+                f"{cat_line}"
+                f"│  The question bank is empty.\n"
+                f"│  Use /addquiz or /importquiz to add.\n"
+                f"╰──────────────────────────────────────╯"
             )
-            await self._reply(update, text, reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🟠 Try Again", callback_data="play_quiz")
-            ]]))
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Browse Topics",  callback_data="categories"),
+                 InlineKeyboardButton("🏠 Home",            callback_data="back_start")],
+            ])
+            await self._reply(update, text, reply_markup=kb)
             return
 
         options = question.get("options", [])
@@ -855,11 +867,10 @@ class TelegramQuizBot:
 
         rank_txt, grade = UI.rank(score)
         level_txt       = UI.level(score)
-        acc_bar         = UI.bar(rate)
+        xp_bar          = UI.xp_bar(score)
         rank_pos        = self._get_user_rank_position(user.id)
         pos_text        = f"#{rank_pos}" if rank_pos else "—"
-
-        acc_pbar = UI.pbar(rate)
+        acc_pbar        = UI.pbar(rate)
 
         text = (
             f"🏆  <b>𝐒𝐂𝐎𝐑𝐄𝐂𝐀𝐑𝐃</b>\n"
@@ -869,7 +880,8 @@ class TelegramQuizBot:
             f"│  🎖  <b>Rank</b>       ›  {rank_txt}  <i>({grade})</i>\n"
             f"│  📈  <b>Level</b>      ›  {level_txt}\n"
             f"│  🌍  <b>Position</b>  ›  <b>{pos_text} Global</b>\n"
-            f"╰──────────────────────────────────────╯\n\n"
+            f"╰──────────────────────────────────────╯\n"
+            f"  <i>XP Progress</i>  {xp_bar}\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📊  <b>𝐏𝐄𝐑𝐅𝐎𝐑𝐌𝐀𝐍𝐂𝐄</b>\n\n"
             f"  ✅  <b>Correct</b>    ›  <b>{score}</b>\n"
@@ -916,7 +928,6 @@ class TelegramQuizBot:
 
         rank_txt, grade = UI.rank(score)
         level_txt       = UI.level(score)
-        acc_bar         = UI.bar(rate)
         xp_bar          = UI.xp_bar(score)
         rank_pos        = self._get_user_rank_position(user.id)
         pos_text        = f"#{rank_pos}" if rank_pos else "Unranked"
@@ -1222,7 +1233,23 @@ class TelegramQuizBot:
         if footer:
             lines.append(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{footer}")
 
-        lines.append(f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  <i>Play /quiz to climb the ranks! 🚀</i>")
+        # Show requester's own rank if they're not in the top 10
+        req_user = update.effective_user
+        if req_user and mode != "group":
+            try:
+                my_pos = self._get_user_rank_position(req_user.id)
+                if my_pos and my_pos > 10:
+                    my_score = self.quiz_manager.get_score(req_user.id)
+                    my_stats = self.quiz_manager.get_user_stats(req_user.id)
+                    my_acc   = my_stats.get("success_rate", 0)
+                    lines.append(
+                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"  📍  <b>Your rank:</b>  #{my_pos}  ·  {my_score} pts  ·  {my_acc}% acc"
+                    )
+            except Exception:
+                pass
+
+        lines.append(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  <i>Play /quiz to climb the ranks! 🚀</i>")
         text = "\n".join(lines)
 
         # Leaderboard tab buttons — semantic colors
@@ -1270,19 +1297,25 @@ class TelegramQuizBot:
         lines = [l for l in raw if l]
 
         USAGE = (
-            f"➕ <b>ADD QUESTION</b>\n"
-            f"{UI.LINE}\n\n"
-            "<b>Format:</b>\n"
-            "<code>/addquiz\n"
-            "Question text\n"
-            "Option A\nOption B\nOption C\nOption D\n"
-            "Correct (1-4)\n"
-            "Category</code>\n\n"
-            "<b>Example:</b>\n"
-            "<code>/addquiz\n"
-            "Which Article abolishes untouchability?\n"
-            "Article 14\nArticle 17\nArticle 19\nArticle 21\n"
-            "2\nLegal Reasoning</code>"
+            f"➕  <b>𝐀𝐃𝐃  𝐐𝐔𝐄𝐒𝐓𝐈𝐎𝐍</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  <b>Format</b> (one item per line):\n"
+            f"│\n"
+            f"│  <code>/addquiz</code>\n"
+            f"│  <code>Question text</code>\n"
+            f"│  <code>Option A</code>\n"
+            f"│  <code>Option B</code>\n"
+            f"│  <code>Option C</code>\n"
+            f"│  <code>Option D</code>\n"
+            f"│  <code>Correct (1–4)</code>\n"
+            f"│  <code>Category</code>\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"<b>Example:</b>\n"
+            f"<code>/addquiz\n"
+            f"Which Article abolishes untouchability?\n"
+            f"Article 14\nArticle 17\nArticle 19\nArticle 21\n"
+            f"2\nConstitution</code>"
         )
 
         if len(lines) < 6:
@@ -1317,18 +1350,21 @@ class TelegramQuizBot:
 
         if added > 0:
             text = (
-                f"✅ <b>QUESTION ADDED</b>\n"
-                f"{UI.LINE}\n\n"
+                f"✅  <b>𝐐𝐔𝐄𝐒𝐓𝐈𝐎𝐍  𝐀𝐃𝐃𝐄𝐃</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"  Added by {mention}\n\n"
-                f"<b>PREVIEW</b>\n"
-                f"{UI.THIN}\n"
-                f"  {question[:65]}{'…' if len(question) > 65 else ''}\n\n"
-                f"  A: {options[0]}\n  B: {options[1]}\n"
-                f"  C: {options[2]}\n  D: {options[3]}\n\n"
-                f"  ✅ Answer   ›  Option {correct+1} — <b>{options[correct]}</b>\n"
-                f"  📂 Category ›  <b>{category}</b>\n\n"
-                f"{UI.LINE}\n"
-                f"  📦 Total in bank: <b>{total}</b>"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  <b>{question[:60]}{'…' if len(question) > 60 else ''}</b>\n"
+                f"│\n"
+                f"│  A:  {options[0]}\n"
+                f"│  B:  {options[1]}\n"
+                f"│  C:  {options[2]}\n"
+                f"│  D:  {options[3]}\n"
+                f"│\n"
+                f"│  ✅  Answer    ›  Option {correct+1} — <b>{options[correct]}</b>\n"
+                f"│  📂  Category  ›  <b>{category}</b>\n"
+                f"╰──────────────────────────────────────╯\n\n"
+                f"  📦  Total in bank: <b>{total}</b>"
             )
         elif dups:
             text = (
@@ -1696,12 +1732,15 @@ class TelegramQuizBot:
 
         if not raw:
             await self._reply(update,
-                f"📡 <b>BROADCAST</b>\n"
-                f"{UI.LINE}\n\n"
-                "<b>Usage:</b>\n"
-                "  <code>/broadcast Your message here</code>\n\n"
-                "Supports HTML: <code>&lt;b&gt;</code> <code>&lt;i&gt;</code>\n"
-                "Alias: <code>/bc</code>"
+                f"📡  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  Send to all users &amp; groups at once\n"
+                f"╰──────────────────────────────────────╯\n\n"
+                f"  <b>Usage:</b>\n"
+                f"  <code>/broadcast Your message here</code>\n\n"
+                f"  Supports HTML:  <code>&lt;b&gt;</code>  <code>&lt;i&gt;</code>  <code>&lt;code&gt;</code>\n"
+                f"  Alias:  <code>/bc</code>"
             )
             return
 
@@ -1714,13 +1753,14 @@ class TelegramQuizBot:
         total  = len(users) + len(groups)
 
         status = await self._reply(update,
-            f"📡 <b>BROADCASTING</b>\n"
-            f"{UI.LINE}\n\n"
-            f"  By {OWNER_NAME}\n\n"
-            f"  Users  ›  <b>{len(users)}</b>\n"
-            f"  Groups ›  <b>{len(groups)}</b>\n"
-            f"  Total  ›  <b>{total}</b>\n\n"
-            f"  <i>Sending...</i>"
+            f"📡  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓𝐈𝐍𝐆</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  👥  Users   ›  <b>{len(users)}</b>\n"
+            f"│  💬  Groups  ›  <b>{len(groups)}</b>\n"
+            f"│  📊  Total   ›  <b>{total}</b> recipients\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"  ⏳  Sending..."
         )
 
         sent = failed = 0
@@ -1761,11 +1801,14 @@ class TelegramQuizBot:
         rate = int(sent / total * 100) if total else 0
         if status:
             await self._edit(status,
-                f"✅ <b>BROADCAST COMPLETE</b>\n"
-                f"{UI.LINE}\n\n"
-                f"  Sent    ›  <b>{sent}</b>\n"
-                f"  Failed  ›  <b>{failed}</b>\n"
-                f"  Rate    ›  [{UI.bar(rate)}] <b>{rate}%</b>"
+                f"✅  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓  𝐂𝐎𝐌𝐏𝐋𝐄𝐓𝐄</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  ✅  Sent     ›  <b>{sent}</b>\n"
+                f"│  ❌  Failed   ›  <b>{failed}</b>\n"
+                f"│  📊  Total    ›  <b>{total}</b>\n"
+                f"╰──────────────────────────────────────╯\n\n"
+                f"  {UI.pbar(rate)}  <b>{rate}%</b> delivery rate"
             )
 
     # ─── /reload ─────────────────────────────────────────────
@@ -1782,24 +1825,26 @@ class TelegramQuizBot:
         await asyncio.sleep(0.4)
 
         try:
-            old = len(self.quiz_manager.questions)
+            old  = len(self.quiz_manager.questions)
             self.quiz_manager.reload_data()
             new  = len(self.quiz_manager.questions)
             diff = new - old
             sign = "+" if diff >= 0 else ""
             text = (
-                f"✅ <b>RELOAD COMPLETE</b>\n"
-                f"{UI.LINE}\n\n"
+                f"✅  <b>𝐑𝐄𝐋𝐎𝐀𝐃  𝐂𝐎𝐌𝐏𝐋𝐄𝐓𝐄</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"  By {mention}\n\n"
-                f"  Questions ›  <b>{new}</b>  <i>({sign}{diff})</i>\n"
-                f"  Source    ›  MongoDB Atlas\n"
-                f"  Cache     ›  ✅ Refreshed"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  📚  Questions  ›  <b>{new}</b>  <i>({sign}{diff})</i>\n"
+                f"│  🗄  Source     ›  MongoDB Atlas\n"
+                f"│  🔄  Cache      ›  ✅ Refreshed\n"
+                f"╰──────────────────────────────────────╯"
             )
         except Exception as e:
             text = (
-                f"❌ <b>RELOAD FAILED</b>\n"
-                f"{UI.LINE}\n\n"
-                f"  Error: <code>{e}</code>"
+                f"❌  <b>𝐑𝐄𝐋𝐎𝐀𝐃  𝐅𝐀𝐈𝐋𝐄𝐃</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"  <code>{e}</code>"
             )
         if msg: await self._edit(msg, text)
 
@@ -1811,12 +1856,15 @@ class TelegramQuizBot:
             await self._unauthorized(update)
             return
 
+        mention = UI.mention(user.id, OWNER_NAME)
         await self._reply(update,
-            f"🔄 <b>RESTARTING</b>\n"
-            f"{UI.LINE}\n\n"
-            f"  Initiated by {OWNER_NAME}\n"
-            f"  Shutting down gracefully...\n"
-            f"  ✅ Back online in seconds!"
+            f"🔄  <b>𝐑𝐄𝐒𝐓𝐀𝐑𝐓𝐈𝐍𝐆</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  By {mention}\n"
+            f"│  ⏳  Shutting down gracefully...\n"
+            f"│  ✅  Back online in seconds!\n"
+            f"╰──────────────────────────────────────╯"
         )
         import sys
         os.makedirs("data", exist_ok=True)
@@ -1833,23 +1881,25 @@ class TelegramQuizBot:
             return
 
         text = (
-            f"📥 <b>BULK IMPORT</b>\n"
-            f"{UI.LINE}\n\n"
+            f"📥  <b>𝐁𝐔𝐋𝐊  𝐈𝐌𝐏𝐎𝐑𝐓</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"  Send a <b>.txt file</b> to this chat.\n\n"
-            f"<b>AUTO-DETECTED FORMATS</b>\n"
-            f"{UI.THIN}\n"
-            f"  ◈ Numbered  —  1. / Q1:\n"
-            f"  ◈ Options   —  A) B) C) D)\n"
-            f"  ◈ Answer    —  Answer: B / Ans: 2\n"
-            f"  ◈ Inline    —  All on same line\n"
-            f"  ◈ Asterisk  —  C) opt *\n\n"
-            f"<b>PROTECTION</b>\n"
-            f"{UI.THIN}\n"
-            f"  ✅ Duplicate detection\n"
-            f"  ✅ Format validation\n"
-            f"  ✅ Auto category tagging\n"
-            f"  ✅ Import report\n\n"
-            f"{UI.LINE}\n"
+            f"📋  <b>𝐅𝐎𝐑𝐌𝐀𝐓𝐒  𝐒𝐔𝐏𝐏𝐎𝐑𝐓𝐄𝐃</b>\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  ◈  Numbered   —  1. / Q1:\n"
+            f"│  ◈  Options    —  A) B) C) D)\n"
+            f"│  ◈  Answer     —  Answer: B / Ans: 2\n"
+            f"│  ◈  Inline     —  All on same line\n"
+            f"│  ◈  Asterisk   —  C) opt *\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"🛡  <b>𝐏𝐑𝐎𝐓𝐄𝐂𝐓𝐈𝐎𝐍</b>\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  ✅  Duplicate detection\n"
+            f"│  ✅  Format validation\n"
+            f"│  ✅  Auto category tagging\n"
+            f"│  ✅  Full import report\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"  <i>Send your .txt file to begin →</i>"
         )
         await self._reply(update, text)
@@ -1960,28 +2010,27 @@ class TelegramQuizBot:
         total_q  = len(self.quiz_manager.questions)
 
         rate = int(imported / max(detected, 1) * 100)
-        bar  = UI.bar(rate)
 
         text_out = (
-            f"📊 <b>IMPORT REPORT</b>\n"
-            f"{UI.LINE}\n\n"
+            f"📊  <b>𝐈𝐌𝐏𝐎𝐑𝐓  𝐑𝐄𝐏𝐎𝐑𝐓</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"  By {mention}\n"
             f"  📄 <code>{fname}</code>\n\n"
-            f"<b>RESULTS</b>\n"
-            f"{UI.THIN}\n"
-            f"  Detected  ›  <b>{detected}</b>\n"
-            f"  Imported  ›  <b>{imported}</b>\n"
-            f"  Skipped   ›  <b>{skipped}</b>  <i>(duplicates)</i>\n"
-            f"  Failed    ›  <b>{failed}</b>\n\n"
-            f"  Success   ›  [{bar}] <b>{rate}%</b>\n\n"
-            f"  📦 Total in DB: <b>{total_q}</b>\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  🔍  Detected  ›  <b>{detected}</b>\n"
+            f"│  ✅  Imported  ›  <b>{imported}</b>\n"
+            f"│  ⏭  Skipped   ›  <b>{skipped}</b>  <i>(duplicates)</i>\n"
+            f"│  ❌  Failed    ›  <b>{failed}</b>\n"
+            f"│  📦  Total DB  ›  <b>{total_q}</b>\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"  {UI.pbar(rate)}  <b>{rate}%</b> success rate\n"
         )
         if errors:
-            text_out += f"\n<b>ERRORS (first {min(len(errors), 3)}):</b>\n"
+            text_out += f"\n<b>Errors:</b>\n"
             for err in errors[:3]:
                 text_out += f"  <code>{str(err)[:65]}</code>\n"
 
-        text_out += f"\n{UI.LINE}\n  <i>Use /quiz to test your new questions!</i>"
+        text_out += f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  <i>Use /quiz to test your new questions!</i>"
 
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("🟢 Play Quiz", callback_data="play_quiz"),
