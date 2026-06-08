@@ -1365,10 +1365,7 @@ class TelegramQuizBot:
             score = entry.get("correct_answers", entry.get("score", 0))
             is_me = bool(req_user and uid == req_user.id)
 
-            if uid == OWNER_ID:
-                raw_name = "CLAT OWNER 🇮🇳"
-            else:
-                raw_name = names.get(uid) or f"User {str(uid)[-4:]}"
+            raw_name = names.get(uid) or f"User {str(uid)[-4:]}"
             disp    = self._lb_clip(raw_name, 22)
             mention = UI.mention(uid, disp)
 
