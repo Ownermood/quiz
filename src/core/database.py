@@ -64,6 +64,9 @@ class DatabaseManager:
             self.broadcasts_col.create_index([("created_at", DESCENDING)])
             # Single-active-quiz tracking — one record per chat
             self.db["active_quiz"].create_index("chat_id", unique=True)
+            # Message tracker — one active message per (chat_id, msg_type)
+            self.db["bot_messages"].create_index(
+                [("chat_id", ASCENDING), ("msg_type", ASCENDING)], unique=True)
         except Exception as e:
             logger.warning(f"Index creation warning: {e}")
 
@@ -187,6 +190,10 @@ class DatabaseManager:
 
     def get_pm_accessible_users(self) -> List[Dict]:
         return list(self.users_col.find({"pm_accessible": True}, {"_id": 0}))
+
+    def get_pm_user_count(self) -> int:
+        """Count of users who can receive DM broadcasts (started the bot in PM)."""
+        return self.users_col.count_documents({"pm_accessible": True})
 
     def remove_inactive_user(self, user_id: int) -> bool:
         result = self.users_col.delete_one({"user_id": user_id})

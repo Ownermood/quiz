@@ -130,20 +130,23 @@ class QuizManager:
                 return selected
 
             # ── No category path ─────────────────────────────────────────
-            # Always fetch from DB so IDs are accurate for /delquiz
-            raw = self.db.get_all_questions()
-            if not raw:
-                return random.choice(self.questions) if self.questions else None
-
-            pool = [_fmt_question(q) for q in raw]  # ← BUG FIX: use _fmt_question
+            # Use the in-memory cache — always accurate because:
+            #   _load_questions() fills it at startup
+            #   add_questions() appends new entries
+            #   delete_question_by_db_id() removes entries
+            #   reload_data() refreshes it fully
+            # Fetching all questions from DB on every call was O(N) per quiz.
+            if not self.questions:
+                return None
 
             if chat_id == 0:
-                return random.choice(pool)
+                return random.choice(self.questions)
 
             recent    = self.recent_questions[chat_id]
-            available = [q for q in pool if q["question"] not in recent]
+            available = [q for q in self.questions if q["question"] not in recent]
             if not available:
-                available = pool
+                self.recent_questions[chat_id].clear()
+                available = list(self.questions)
                 logger.info(f"Reset recent questions for chat {chat_id}")
 
             selected = random.choice(available)

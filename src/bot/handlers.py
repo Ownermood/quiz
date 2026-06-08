@@ -20,7 +20,7 @@ from telegram.ext import (
     CallbackQueryHandler, MessageHandler, filters, ContextTypes
 )
 from telegram.constants import ParseMode
-from telegram.error import TelegramError, Forbidden, BadRequest, TimedOut, NetworkError
+from telegram.error import TelegramError, Forbidden, BadRequest, TimedOut, NetworkError, RetryAfter
 
 logger   = logging.getLogger(__name__)
 OWNER_ID   = int(os.environ.get("OWNER_ID", "8403136097"))
@@ -1143,10 +1143,11 @@ class TelegramQuizBot:
     async def cmd_botstats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await self._reply(update, "📊")
 
-        q_total = len(self.quiz_manager.questions)
+        q_total = (self.db.questions_col.count_documents({})
+                   if self.db else len(self.quiz_manager.questions))
 
         # Users
-        u_total = u_active_d = u_active_w = 0
+        u_total = u_pm = u_active_d = u_active_w = 0
         u_new_d = u_new_w = u_new_m = 0
         # Groups
         g_total = g_new_d = g_new_w = g_new_m = 0
@@ -1170,6 +1171,7 @@ class TelegramQuizBot:
 
                 # ── Users ────────────────────────────────────
                 u_total    = ucol.count_documents({})
+                u_pm       = ucol.count_documents({"pm_accessible": True})
                 u_active_d = ucol.count_documents({"last_seen": {"$gte": d_cut}})
                 u_active_w = ucol.count_documents({"last_seen": {"$gte": w_cut}})
                 u_new_d    = ucol.count_documents({"joined_at": {"$gte": d_cut}})
@@ -1212,6 +1214,7 @@ class TelegramQuizBot:
             f"👥  <b>𝐔𝐒𝐄𝐑𝐒</b>\n"
             f"╭──────────────────────────────────────╮\n"
             f"│  Total          ›  <b>{UI.fmt_num(u_total)}</b>\n"
+            f"│  Broadcast Reach ›  <b>{UI.fmt_num(u_pm)}</b>  <i>(DM-accessible)</i>\n"
             f"│  Active 24h     ›  <b>{u_active_d}</b>\n"
             f"│  Active 7d      ›  <b>{u_active_w}</b>\n"
             f"│  New Today      ›  <b>+{u_new_d}</b>\n"
@@ -1937,6 +1940,7 @@ class TelegramQuizBot:
 
         users  = self.db.get_pm_accessible_users()
         groups = self.db.get_all_groups()
+        u_db_total = self.db.users_col.count_documents({})
         total  = len(users) + len(groups)
         mode_label = "📨 Forward message" if reply_to else "📝 Text message"
 
@@ -1945,9 +1949,10 @@ class TelegramQuizBot:
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"╭──────────────────────────────────────╮\n"
             f"│  {mode_label}\n"
-            f"│  👥  Users   ›  <b>{len(users)}</b>\n"
-            f"│  💬  Groups  ›  <b>{len(groups)}</b>\n"
-            f"│  📊  Total   ›  <b>{total}</b> recipients\n"
+            f"│  👥  Users (DB)   ›  <b>{u_db_total}</b>  <i>total in DB</i>\n"
+            f"│  📨  Broadcast    ›  <b>{len(users)}</b>  <i>DM-reachable</i>\n"
+            f"│  💬  Groups       ›  <b>{len(groups)}</b>\n"
+            f"│  📊  Targeting    ›  <b>{total}</b> recipients\n"
             f"╰──────────────────────────────────────╯\n\n"
             f"  ⏳  Sending..."
         )
@@ -1958,53 +1963,73 @@ class TelegramQuizBot:
         from_mid  = reply_to.message_id  if reply_to else None
 
         for u in users:
-            try:
-                if reply_to:
-                    m = await context.bot.copy_message(
-                        chat_id=u["user_id"], from_chat_id=from_cid, message_id=from_mid)
-                else:
-                    m = await context.bot.send_message(
-                        chat_id=u["user_id"], text=raw, parse_mode=ParseMode.HTML)
-                sent_msgs[str(u["user_id"])] = m.message_id
-                sent += 1
-                await asyncio.sleep(0.05)
-            except (Forbidden, BadRequest):
-                failed += 1
-            except Exception as e:
-                logger.error(f"BC user {u['user_id']}: {e}")
-                failed += 1
+            for attempt in range(3):
+                try:
+                    if reply_to:
+                        m = await context.bot.copy_message(
+                            chat_id=u["user_id"], from_chat_id=from_cid, message_id=from_mid)
+                    else:
+                        m = await context.bot.send_message(
+                            chat_id=u["user_id"], text=raw, parse_mode=ParseMode.HTML)
+                    sent_msgs[str(u["user_id"])] = m.message_id
+                    sent += 1
+                    await asyncio.sleep(0.05)
+                    break
+                except RetryAfter as e:
+                    if attempt < 2:
+                        await asyncio.sleep(e.retry_after + 1)
+                    else:
+                        failed += 1
+                        break
+                except (Forbidden, BadRequest):
+                    failed += 1
+                    break
+                except Exception as e:
+                    logger.error(f"BC user {u['user_id']}: {e}")
+                    failed += 1
+                    break
 
         for g in groups:
             tid = g.get("message_thread_id")
-            try:
-                if reply_to:
-                    m = await context.bot.copy_message(
-                        chat_id=g["chat_id"], from_chat_id=from_cid, message_id=from_mid)
-                else:
-                    kwargs = {"chat_id": g["chat_id"], "text": raw, "parse_mode": ParseMode.HTML}
-                    if tid: kwargs["message_thread_id"] = tid
-                    m = await context.bot.send_message(**kwargs)
-                sent_msgs[str(g["chat_id"])] = m.message_id
-                sent += 1
-                await asyncio.sleep(0.05)
-            except TelegramError as e:
-                if any(w in str(e).lower() for w in ("topic", "closed", "thread")):
-                    try:
-                        if reply_to:
-                            m = await context.bot.copy_message(
-                                chat_id=g["chat_id"], from_chat_id=from_cid, message_id=from_mid)
-                        else:
-                            m = await context.bot.send_message(
-                                chat_id=g["chat_id"], text=raw, parse_mode=ParseMode.HTML)
-                        sent_msgs[str(g["chat_id"])] = m.message_id
-                        sent += 1
-                    except Exception:
+            for attempt in range(3):
+                try:
+                    if reply_to:
+                        m = await context.bot.copy_message(
+                            chat_id=g["chat_id"], from_chat_id=from_cid, message_id=from_mid)
+                    else:
+                        kwargs = {"chat_id": g["chat_id"], "text": raw, "parse_mode": ParseMode.HTML}
+                        if tid: kwargs["message_thread_id"] = tid
+                        m = await context.bot.send_message(**kwargs)
+                    sent_msgs[str(g["chat_id"])] = m.message_id
+                    sent += 1
+                    await asyncio.sleep(0.05)
+                    break
+                except RetryAfter as e:
+                    if attempt < 2:
+                        await asyncio.sleep(e.retry_after + 1)
+                    else:
                         failed += 1
-                else:
+                        break
+                except TelegramError as e:
+                    if any(w in str(e).lower() for w in ("topic", "closed", "thread")):
+                        try:
+                            if reply_to:
+                                m = await context.bot.copy_message(
+                                    chat_id=g["chat_id"], from_chat_id=from_cid, message_id=from_mid)
+                            else:
+                                m = await context.bot.send_message(
+                                    chat_id=g["chat_id"], text=raw, parse_mode=ParseMode.HTML)
+                            sent_msgs[str(g["chat_id"])] = m.message_id
+                            sent += 1
+                        except Exception:
+                            failed += 1
+                    else:
+                        failed += 1
+                    break
+                except Exception as e:
+                    logger.error(f"BC group {g.get('chat_id')}: {e}")
                     failed += 1
-            except Exception as e:
-                logger.error(f"BC group {g.get('chat_id')}: {e}")
-                failed += 1
+                    break
 
         # Save for /delbroadcast
         if sent_msgs:
@@ -2023,9 +2048,10 @@ class TelegramQuizBot:
             f"✅  <b>𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓  𝐂𝐎𝐌𝐏𝐋𝐄𝐓𝐄</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"╭──────────────────────────────────────╮\n"
-            f"│  ✅  Sent     ›  <b>{sent}</b>\n"
-            f"│  ❌  Failed   ›  <b>{failed}</b>\n"
-            f"│  📊  Total    ›  <b>{total}</b>\n"
+            f"│  ✅  Sent        ›  <b>{sent}</b>\n"
+            f"│  ❌  Failed      ›  <b>{failed}</b>\n"
+            f"│  👥  DB Total    ›  <b>{u_db_total}</b>  <i>(all users)</i>\n"
+            f"│  📨  Targeted    ›  <b>{total}</b>  <i>(DM + groups)</i>\n"
             f"╰──────────────────────────────────────╯\n\n"
             f"  {UI.pbar(rate)}  <b>{rate}%</b> delivery rate\n\n"
             f"  🗑  To undo: <code>/delbroadcast</code>"
