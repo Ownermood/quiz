@@ -140,7 +140,7 @@ def run_polling_mode(config: Config):
 
             scheduler.start()
 
-            # ── Startup greetings ──────────────────────────────
+            # ── Startup messages — premium educational design ──
             try:
                 from src.core.config import OWNER_ID
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
@@ -150,92 +150,82 @@ def run_polling_mode(config: Config):
                 total_g = len(db_mgr.get_all_groups()) if db_mgr else 0
                 now     = datetime.now().strftime("%d %b %Y  •  %I:%M %p")
 
+                logger.info("[STARTUP] Welcome Screen Loaded")
+
                 # ── Owner: technical status card ──
                 if OWNER_ID:
                     owner_msg = (
-                        f"🌿  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍  —  𝐁𝐎𝐓  𝐋𝐈𝐕𝐄</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                        f"  👋  Assalamu Alaikum, Owner!\n"
-                        f"  All systems are up and running.\n\n"
-                        f"╭──────────────────────────────────────╮\n"
-                        f"│  🕒  {now}\n"
-                        f"│  📚  Questions  ›  <b>{total_q:,}</b>\n"
-                        f"│  👥  Users      ›  <b>{total_u:,}</b>\n"
-                        f"│  💬  Groups     ›  <b>{total_g:,}</b>\n"
-                        f"╰──────────────────────────────────────╯\n\n"
-                        f"  ⚡  Ready · /dev for controls"
+                        f"🎓  <b>CLAT VISION</b>  ·  System Status\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"  ✅  Bot is live and operational.\n\n"
+                        f"  🕒  <b>{now}</b>\n"
+                        f"  📚  Questions  ›  <b>{total_q:,}</b>\n"
+                        f"  👥  Users      ›  <b>{total_u:,}</b>\n"
+                        f"  💬  Groups     ›  <b>{total_g:,}</b>\n\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"  ⚡  All systems online  ·  /dev for controls"
                     )
-                    await bot.application.bot.send_message(
-                        chat_id=OWNER_ID, text=owner_msg, parse_mode="HTML")
-                    logger.info("✅ Owner startup card sent")
+                    try:
+                        await bot.application.bot.send_message(
+                            chat_id=OWNER_ID, text=owner_msg, parse_mode="HTML")
+                        logger.info("[STARTUP] Owner status card sent")
+                    except Exception as e:
+                        logger.warning(f"[STARTUP] Owner card failed: {e}")
 
-                # ── All PM users: warm greeting broadcast ──
+                # ── Premium educational welcome (shared by PM + groups) ──
+                welcome_msg = (
+                    f"🎓  <b>CLAT VISION</b>\n"
+                    f"<i>Your CLAT Preparation Companion</i>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"<b>Welcome Back!</b> 👋\n\n"
+                    f"Practice smarter, improve your rank, and test your "
+                    f"knowledge with interactive quizzes.\n\n"
+                    f"  📚  <b>{total_q:,}</b> Questions Ready\n"
+                    f"  🏆  Leaderboard Active\n"
+                    f"  ⚡  Systems Online\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"Choose an option below to begin."
+                )
+                welcome_kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🚀 Start Quiz",   callback_data="play_quiz")],
+                    [InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard"),
+                     InlineKeyboardButton("📊 My Stats",     callback_data="my_stats")],
+                ])
+
+                # PM users
                 users = db_mgr.get_pm_accessible_users() if db_mgr else []
+                sent = 0
+                for u in users:
+                    if u.get("user_id") == OWNER_ID:
+                        continue
+                    try:
+                        await bot.application.bot.send_message(
+                            chat_id=u["user_id"], text=welcome_msg,
+                            parse_mode="HTML", reply_markup=welcome_kb)
+                        sent += 1
+                        await asyncio.sleep(0.05)
+                    except Exception:
+                        pass
                 if users:
-                    user_greeting = (
-                        f"🌸  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍  𝐈𝐒  𝐁𝐀𝐂𝐊!</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                        f"  Assalamu Alaikum! 🌙\n"
-                        f"  Radhe Radhe! 🙏\n\n"
-                        f"╭──────────────────────────────────────╮\n"
-                        f"│  Your CLAT Quiz Bot is online &amp;\n"
-                        f"│  ready to power your preparation! 🚀\n"
-                        f"╰──────────────────────────────────────╯\n\n"
-                        f"  📚  <b>{total_q:,}</b> questions ready to quiz you\n"
-                        f"  🏆  Leaderboard &amp; streaks updated\n"
-                        f"  🎯  New questions may have been added\n\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"  Let's go — your rank awaits! 💪"
-                    )
-                    kb = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("🎯 Play Quiz",      callback_data="play_quiz"),
-                        InlineKeyboardButton("🏆 Leaderboard",    callback_data="leaderboard"),
-                    ]])
-                    sent = 0
-                    for u in users:
-                        if u.get("user_id") == OWNER_ID:
-                            continue  # owner already got the status card
-                        try:
-                            await bot.application.bot.send_message(
-                                chat_id=u["user_id"],
-                                text=user_greeting,
-                                parse_mode="HTML",
-                                reply_markup=kb,
-                            )
-                            sent += 1
-                            await asyncio.sleep(0.05)
-                        except Exception:
-                            pass
-                    logger.info(f"✅ Startup greeting sent to {sent} users")
+                    logger.info(f"[STARTUP] Welcome sent to {sent} users")
 
-                # ── Groups: brief online notice ──
+                # Groups
                 groups = db_mgr.get_all_groups() if db_mgr else []
+                grp_sent = 0
+                for g in groups:
+                    try:
+                        await bot.application.bot.send_message(
+                            chat_id=g["chat_id"], text=welcome_msg,
+                            parse_mode="HTML", reply_markup=welcome_kb)
+                        grp_sent += 1
+                        await asyncio.sleep(0.05)
+                    except Exception:
+                        pass
                 if groups:
-                    group_msg = (
-                        f"🌸  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍  𝐈𝐒  𝐁𝐀𝐂𝐊!</b>\n\n"
-                        f"  Assalamu Alaikum! 🌙  |  Radhe Radhe! 🙏\n"
-                        f"  Your quiz bot is online and ready.\n\n"
-                        f"  📚  <b>{total_q:,}</b> questions  ·  🏆 Leaderboard live\n\n"
-                        f"  Tap below to start! 🎯"
-                    )
-                    grp_kb = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("🎯 Start Quiz", callback_data="play_quiz"),
-                    ]])
-                    for g in groups:
-                        try:
-                            await bot.application.bot.send_message(
-                                chat_id=g["chat_id"],
-                                text=group_msg,
-                                parse_mode="HTML",
-                                reply_markup=grp_kb,
-                            )
-                            await asyncio.sleep(0.05)
-                        except Exception:
-                            pass
-                    logger.info(f"✅ Startup notice sent to {len(groups)} groups")
+                    logger.info(f"[STARTUP] Welcome sent to {grp_sent} groups")
 
             except Exception as e:
-                logger.warning(f"Startup greeting error: {e}")
+                logger.warning(f"[STARTUP] Welcome screen error: {e}")
             await bot.application.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=["message", "poll_answer", "callback_query"],

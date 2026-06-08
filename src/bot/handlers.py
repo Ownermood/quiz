@@ -321,6 +321,7 @@ class TelegramQuizBot:
                 BotCommand("stats",       "📈 Your detailed stats"),
                 BotCommand("botstats",    "📊 Bot-wide statistics"),
                 BotCommand("leaderboard", "🔱 Global leaderboard"),
+                BotCommand("categories",  "📚 Browse quiz topics"),
                 BotCommand("help",        "📖 Command center"),
                 BotCommand("start",       "🚀 Welcome screen"),
                 BotCommand("ping",        "🏓 Connection test"),
