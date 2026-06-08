@@ -3,6 +3,7 @@ MongoDB DatabaseManager for Telegram Quiz Bot
 Owner ID: 8403136097
 """
 
+import json
 import logging
 import os
 from typing import Optional, List, Dict, Any
@@ -85,7 +86,6 @@ class DatabaseManager:
         docs = list(self.questions_col.find({}, {"_id": 0}))
         for d in docs:
             if isinstance(d.get("options"), str):
-                import json
                 try:
                     d["options"] = json.loads(d["options"])
                 except Exception:

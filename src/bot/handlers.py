@@ -10,7 +10,7 @@ import random
 import re
 import time
 from typing import Optional, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -472,12 +472,11 @@ class TelegramQuizBot:
         correct = stats.get("correct_answers", 0)
         wrong   = max(0, total_q - correct)
 
-        rank_txt, grade = UI.rank(score)
-        level_txt       = UI.level(score)
-        rank_pos        = self._get_user_rank_position(user.id)
-        rank_line       = f"#{rank_pos} Global" if rank_pos else "Not Ranked Yet"
-        streak_d        = f"{streak} Days" if streak > 0 else "0 Days"
-        greeting        = random.choice(_PROFILE_GREETINGS).format(mention)
+        try:
+            bot_username = context.bot.username or "MissQuiz_Bot"
+        except Exception:
+            bot_username = "MissQuiz_Bot"
+        bot_mention = f'<a href="https://t.me/{bot_username}">Miss Quiz 🎓</a>'
 
         # ── Build text ────────────────────────────────────────
         if is_pm:
@@ -994,7 +993,7 @@ class TelegramQuizBot:
         streak  = stats.get("current_streak", 0)
         best    = stats.get("longest_streak", 0)
         today   = stats.get("today_quizzes", 0)
-        wrong   = total - score
+        wrong   = max(0, total - score)
 
         rank_txt, grade = UI.rank(score)
         level_txt       = UI.level(score)
@@ -1201,7 +1200,7 @@ class TelegramQuizBot:
 
         if self.db:
             try:
-                from datetime import timedelta
+
                 now   = datetime.utcnow()
                 d_cut = (now - timedelta(days=1)).isoformat()
                 w_cut = (now - timedelta(days=7)).isoformat()
@@ -1758,7 +1757,6 @@ class TelegramQuizBot:
 
     async def _cb_delquiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer()
         data  = query.data
         actor = query.from_user
 
@@ -1774,9 +1772,12 @@ class TelegramQuizBot:
             await query.answer("❌ Not your menu!", show_alert=True)
             return
 
+        await query.answer()
+
         questions = self.quiz_manager.questions
 
         if action == "cancel":
+            self._del_page.pop(actor.id, None)
             try: await query.message.delete()
             except Exception: pass
             return
@@ -1799,6 +1800,7 @@ class TelegramQuizBot:
             q_info  = next((q for q in questions if q.get("id") == qid), None)
             preview = q_info.get("question", "")[:55] if q_info else f"#{qid}"
 
+            self._del_page.pop(actor.id, None)
             success = self.quiz_manager.delete_question_by_db_id(qid)
             mention = UI.mention(actor.id, actor.first_name or "Admin")
 
@@ -2127,7 +2129,7 @@ class TelegramQuizBot:
 
         msgs  = bc.get("messages", {})
         total = len(msgs)
-        bc_type = bc.get("type", "text")
+
 
         status = await self._reply(update,
             f"🗑  <b>𝐃𝐄𝐋𝐄𝐓𝐈𝐍𝐆  𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓</b>\n"
@@ -2226,7 +2228,7 @@ class TelegramQuizBot:
         )
         import sys
         os.makedirs("data", exist_ok=True)
-        open("data/.restart_flag", "w").close()
+        with open("data/.restart_flag", "w"): pass
         await asyncio.sleep(1)
         os.execv(sys.executable, [sys.executable] + sys.argv)
 

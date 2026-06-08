@@ -291,9 +291,6 @@ class QuizManager:
         else:
             s["current_streak"] = 0
 
-        if user_id not in self.active_chats:
-            self.active_chats.append(user_id)
-
     def record_group_attempt(self, user_id: int, chat_id: int, is_correct: bool):
         uid = str(user_id)
         if uid not in self.stats:
