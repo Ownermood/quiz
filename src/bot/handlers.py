@@ -222,6 +222,7 @@ def get_tracking_id(chat_id: int, thread_id: Optional[int]) -> int:
 class TelegramQuizBot:
 
     def __init__(self, quiz_manager, db_manager=None):
+        from src.core.quiz_cleanup import QuizCleanupManager
         self.quiz_manager             = quiz_manager
         self.db                       = db_manager
         self.application: Optional[Application] = None
@@ -230,6 +231,8 @@ class TelegramQuizBot:
         # Leaderboard page cache: key → (timestamp, ranked_list)
         self._lb_cache: dict          = {}
         self._lb_cache_ttl            = 60  # seconds
+        # Centralized single-active-quiz cleanup manager (shared by all paths)
+        self.cleanup                  = QuizCleanupManager(db_manager)
 
     # ─── Initialization ──────────────────────────────────────
 
@@ -733,11 +736,19 @@ class TelegramQuizBot:
         if thread_id:
             poll_kwargs["message_thread_id"] = thread_id
 
+        # ── Single-active-quiz cleanup: delete previous quiz first ──
+        logger.info(f"[QUIZ] Sending New Quiz — /quiz chat={chat.id}")
+        await self.cleanup.cleanup(context.bot, chat.id)
+
         poll_sent = False
         try:
             poll_msg = await update.effective_message.reply_poll(**poll_kwargs)
             poll_id  = poll_msg.poll.id
             poll_sent = True
+
+            # Register as the single active quiz for this chat
+            self.cleanup.save_active(chat.id, poll_msg.message_id,
+                                     quiz_type="poll", thread_id=thread_id)
 
             if self.db and q_id:
                 self.db.save_poll_mapping(str(poll_id), q_id)
@@ -789,9 +800,12 @@ class TelegramQuizBot:
                 buttons.append([InlineKeyboardButton(
                     lbl[:64], callback_data=f"aq_ans_{q_id}_{i}_{correct_idx}")])
             try:
-                await update.effective_message.reply_text(
+                inline_msg = await update.effective_message.reply_text(
                     text, parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup(buttons))
+                # Register inline quiz as the single active quiz
+                self.cleanup.save_active(chat.id, inline_msg.message_id,
+                                         quiz_type="inline", thread_id=thread_id)
             except TelegramError as e2:
                 logger.error(f"[QUIZ] Inline fallback also failed: {e2}")
 

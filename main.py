@@ -131,6 +131,13 @@ def run_polling_mode(config: Config):
         logger.info("🎯 Bot is live! Listening for messages… (Ctrl+C to stop)")
         async with bot.application:
             await bot.application.start()
+
+            # ── Single-active-quiz startup recovery ──
+            try:
+                await bot.cleanup.startup_recovery(bot.application.bot)
+            except Exception as e:
+                logger.warning(f"[QUIZ] Startup recovery skipped: {e}")
+
             scheduler.start()
 
             # ── Startup greetings ──────────────────────────────

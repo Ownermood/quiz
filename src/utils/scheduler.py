@@ -3,8 +3,9 @@ AutoQuizScheduler — production-grade, singleton, fault-tolerant.
 
 Design guarantees:
   • Exactly one quiz per 30-minute interval per active chat.
-  • No duplicate sends after restart (DB-persisted last-send timestamp).
-  • Previous quiz message deleted before new one is posted.
+  • No overlapping/bunched jobs (max_instances=1, coalesce).
+  • Previous quiz message deleted before new one is posted —
+    via the shared QuizCleanupManager (single active quiz per chat).
   • Poll validated and sanitized before every send.
   • Inline-keyboard fallback when poll fails.
   • Never crashes — all errors caught per chat.
@@ -46,44 +47,10 @@ class AutoQuizScheduler:
         self._scheduler   = AsyncIOScheduler()
         self._running     = False
 
-        # In-memory cache: chat_id → last message_id (also persisted in DB)
-        self._last_msg: dict = {}
-        self._load_state()
-
-    # ── State persistence ──────────────────────────────────────────────────────
-
-    def _load_state(self):
-        """Load persisted auto-quiz state from MongoDB on startup."""
-        if not self.db:
-            return
-        try:
-            docs = list(self.db.db["auto_quiz_state"].find({}, {"_id": 0}))
-            for doc in docs:
-                cid = doc.get("chat_id")
-                mid = doc.get("message_id")
-                if cid is not None:
-                    self._last_msg[cid] = mid
-            if docs:
-                logger.info(f"[QUIZ] Scheduler Restored — {len(docs)} chat states loaded")
-        except Exception as e:
-            logger.warning(f"[QUIZ] Could not load scheduler state: {e}")
-
-    def _save_state(self, chat_id: int, message_id: Optional[int]):
-        self._last_msg[chat_id] = message_id
-        if not self.db:
-            return
-        try:
-            self.db.db["auto_quiz_state"].update_one(
-                {"chat_id": chat_id},
-                {"$set": {
-                    "chat_id":      chat_id,
-                    "message_id":   message_id,
-                    "last_sent_at": datetime.now(timezone.utc).isoformat(),
-                }},
-                upsert=True,
-            )
-        except Exception as e:
-            logger.warning(f"[QUIZ] Could not save state for {chat_id}: {e}")
+    @property
+    def _cleanup(self):
+        """Shared single-active-quiz cleanup manager (lives on the bot)."""
+        return getattr(self.bot, "cleanup", None)
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -149,16 +116,6 @@ class AutoQuizScheduler:
 
         logger.info(f"[QUIZ] Quiz Validation Passed — Q#{question.get('id')} for {chat_id}")
 
-        # Delete previous quiz message
-        old_msg_id = self._last_msg.get(chat_id)
-        if old_msg_id:
-            try:
-                await self.bot.application.bot.delete_message(
-                    chat_id=chat_id, message_id=old_msg_id)
-                logger.info(f"[QUIZ] Previous Quiz Deleted — msg_id={old_msg_id} chat={chat_id}")
-            except Exception as e:
-                logger.warning(f"[QUIZ] Could not delete previous quiz (msg={old_msg_id}): {e}")
-
         # Group thread_id
         thread_id = None
         if self.db:
@@ -169,17 +126,27 @@ class AutoQuizScheduler:
             except Exception:
                 pass
 
+        # ── Single-active-quiz cleanup: delete previous quiz first ──
+        logger.info(f"[QUIZ] Sending New Quiz — auto chat={chat_id}")
+        if self._cleanup:
+            await self._cleanup.cleanup(self.bot.application.bot, chat_id)
+
         # Try poll first, then inline fallback
         msg = await self._try_send_poll(chat_id, question, thread_id)
+        quiz_type = "poll"
         if msg is None:
             logger.info(f"[QUIZ] Switching To Inline Mode for {chat_id}")
             msg = await self._try_send_inline(chat_id, question, thread_id)
+            quiz_type = "inline"
 
         if msg is None:
             logger.error(f"[QUIZ] All send methods failed for {chat_id} — skipping")
             return
 
-        self._save_state(chat_id, msg.message_id)
+        # Register as the single active quiz for this chat
+        if self._cleanup:
+            self._cleanup.save_active(chat_id, msg.message_id,
+                                      quiz_type=quiz_type, thread_id=thread_id)
         logger.info(f"[QUIZ] Quiz Sent Successfully — msg_id={msg.message_id} chat={chat_id}")
         logger.info(f"[QUIZ] Next Quiz Scheduled — in {self.interval} min for {chat_id}")
 

@@ -62,6 +62,8 @@ class DatabaseManager:
             self.performance_col.create_index([("metric", ASCENDING), ("timestamp", DESCENDING)])
             self.performance_col.create_index([("timestamp", DESCENDING)])
             self.broadcasts_col.create_index([("created_at", DESCENDING)])
+            # Single-active-quiz tracking — one record per chat
+            self.db["active_quiz"].create_index("chat_id", unique=True)
         except Exception as e:
             logger.warning(f"Index creation warning: {e}")
 
