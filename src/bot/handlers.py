@@ -20,7 +20,7 @@ from telegram.ext import (
     CallbackQueryHandler, MessageHandler, filters, ContextTypes
 )
 from telegram.constants import ParseMode
-from telegram.error import TelegramError, Forbidden, BadRequest
+from telegram.error import TelegramError, Forbidden, BadRequest, TimedOut, NetworkError
 
 logger   = logging.getLogger(__name__)
 OWNER_ID   = int(os.environ.get("OWNER_ID", "8403136097"))
@@ -764,12 +764,17 @@ class TelegramQuizBot:
                 except Exception as eg:
                     logger.error(f"register_group: {eg}")
 
+        except (TimedOut, NetworkError) as e:
+            # Network timeout — the poll may well have been delivered.
+            # Do NOT fall back to inline or we'd risk a duplicate quiz.
+            logger.warning(f"[QUIZ] Poll send timed out (no inline fallback): {e}")
+            return
         except TelegramError as e:
             err = str(e).lower()
             if any(w in err for w in ("topic", "thread", "closed")):
                 await self._reply(update, "⚠️ <b>Topic Restricted</b>\n\nThis topic is closed.")
                 return
-            logger.warning(f"[QUIZ] Poll Validation Failed — falling back to inline: {e}")
+            logger.warning(f"[QUIZ] Poll send failed — falling back to inline: {e}")
 
         # Inline keyboard fallback if poll failed
         if not poll_sent:
@@ -2296,15 +2301,19 @@ class TelegramQuizBot:
     # ─── INLINE QUIZ ANSWER (fallback mode) ───────────────────
 
     async def _handle_inline_quiz_answer(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE, data: str
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, data: str = None
     ):
-        """Handle answer taps on inline-keyboard fallback quizzes."""
+        """Handle answer taps on inline-keyboard fallback quizzes.
+        `data` is optional — when invoked as a CallbackQueryHandler, PTB calls
+        with (update, context) only, so we read the callback data directly."""
         query = update.callback_query
+        if data is None:
+            data = (query.data if query else "") or ""
         try:
             # data format: aq_ans_{q_id}_{chosen}_{correct}
             parts   = data.split("_")
-            chosen  = int(parts[4])
-            correct = int(parts[5])
+            chosen  = int(parts[3])
+            correct = int(parts[4])
         except (IndexError, ValueError):
             return
 

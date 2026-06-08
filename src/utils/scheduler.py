@@ -129,8 +129,13 @@ class AutoQuizScheduler:
             await self._cleanup.cleanup(self.bot.application.bot, chat_id)
 
         # Try poll first, then inline fallback
-        msg = await self._try_send_poll(chat_id, question, thread_id)
+        msg, timed_out = await self._try_send_poll(chat_id, question, thread_id)
         quiz_type = "poll"
+        if msg is None and timed_out:
+            # Network timeout — poll may have been delivered; skip inline to
+            # avoid a duplicate quiz. State stays cleared; next cycle proceeds.
+            logger.warning(f"[QUIZ] Poll timed out for {chat_id} — skipping inline fallback")
+            return
         if msg is None:
             logger.info(f"[QUIZ] Switching To Inline Mode for {chat_id}")
             msg = await self._try_send_inline(chat_id, question, thread_id)
@@ -155,8 +160,10 @@ class AutoQuizScheduler:
                 pass
 
     async def _try_send_poll(self, chat_id: int, q: dict, thread_id=None):
-        """Attempt to send as Telegram Quiz Poll. Returns message or None."""
+        """Attempt to send a Telegram Quiz Poll.
+        Returns (message_or_None, timed_out: bool)."""
         from telegram import Poll
+        from telegram.error import TimedOut, NetworkError
         try:
             cat       = q.get("category", "General")
             cat_emoji = _cat_emoji(cat)
@@ -177,11 +184,14 @@ class AutoQuizScheduler:
                 kwargs["message_thread_id"] = thread_id
 
             logger.info(f"[QUIZ] Poll Validation Passed — sending poll to {chat_id}")
-            return await self.bot.application.bot.send_poll(**kwargs)
+            return await self.bot.application.bot.send_poll(**kwargs), False
 
+        except (TimedOut, NetworkError) as e:
+            logger.warning(f"[QUIZ] Poll send timed out for {chat_id}: {e}")
+            return None, True
         except Exception as e:
-            logger.warning(f"[QUIZ] Poll Validation Failed for {chat_id}: {e}")
-            return None
+            logger.warning(f"[QUIZ] Poll send failed for {chat_id}: {e}")
+            return None, False
 
     async def _try_send_inline(self, chat_id: int, q: dict, thread_id=None):
         """Fallback: send question as inline-keyboard message. Returns message or None."""
