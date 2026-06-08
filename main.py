@@ -168,7 +168,8 @@ def run_polling_mode(config: Config):
                     user_greeting = (
                         f"🌸  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍  𝐈𝐒  𝐁𝐀𝐂𝐊!</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                        f"  Assalamu Alaikum! 🌙\n\n"
+                        f"  Assalamu Alaikum! 🌙\n"
+                        f"  Radhe Radhe! 🙏\n\n"
                         f"╭──────────────────────────────────────╮\n"
                         f"│  Your CLAT Quiz Bot is online &amp;\n"
                         f"│  ready to power your preparation! 🚀\n"
@@ -205,7 +206,7 @@ def run_polling_mode(config: Config):
                 if groups:
                     group_msg = (
                         f"🌸  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍  𝐈𝐒  𝐁𝐀𝐂𝐊!</b>\n\n"
-                        f"  Assalamu Alaikum! 🌙\n"
+                        f"  Assalamu Alaikum! 🌙  |  Radhe Radhe! 🙏\n"
                         f"  Your quiz bot is online and ready.\n\n"
                         f"  📚  <b>{total_q:,}</b> questions  ·  🏆 Leaderboard live\n\n"
                         f"  Tap below to start! 🎯"

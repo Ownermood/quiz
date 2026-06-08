@@ -280,6 +280,7 @@ class TelegramQuizBot:
         app.add_handler(CallbackQueryHandler(
             self._cb_delquiz, pattern=r"^dq_"))
         app.add_handler(CallbackQueryHandler(self.handle_callback))
+        app.add_error_handler(self._error_handler)
 
         # Bulk import: .txt file
         app.add_handler(MessageHandler(
@@ -2199,11 +2200,23 @@ class TelegramQuizBot:
         else:
             await self._reply(update, text_out, reply_markup=kb)
 
+    # ─── ERROR HANDLER ────────────────────────────────────────
+
+    async def _error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
+        from telegram.error import TimedOut, NetworkError
+        if isinstance(context.error, (TimedOut, NetworkError)):
+            logger.debug(f"Network error (ignored): {context.error}")
+        else:
+            logger.error(f"Unhandled error: {context.error}", exc_info=context.error)
+
     # ─── CALLBACK HANDLER ─────────────────────────────────────
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception:
+            pass
         data  = query.data
 
         if   data == "play_quiz":   await self.cmd_quiz(update, context)
