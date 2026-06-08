@@ -401,39 +401,15 @@ class TelegramQuizBot:
 
     # ─── /start ──────────────────────────────────────────────
 
-    async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        edit_msg=None):
         user    = update.effective_user
         name    = user.first_name or "Student"
         mention = UI.mention(user.id, name)
         chat    = update.effective_chat
         is_pm   = chat.type == "private"
 
-        # DM: delete the previous /start message before sending a fresh one
-        if is_pm:
-            await self.tracker.delete_previous(context.bot, chat.id, "start")
-
-        # 5-frame emoji animation (PM only)
-        if is_pm:
-            msg = await self._reply(update, "✨")
-            if msg:
-                self.tracker.save_tracked(chat.id, "start", msg.message_id)
-            await asyncio.sleep(0.22)
-            await self._edit(msg, "✨  🌟  ✨")
-            await asyncio.sleep(0.25)
-            await self._edit(msg, "🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓")
-            await asyncio.sleep(0.30)
-            await self._edit(msg,
-                "╔══════════════════════════════════════════════╗\n"
-                "║          🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓              ║\n"
-                "║          ✦  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐀𝐃𝐄𝐌𝐘</b>  ✦              ║\n"
-                "╚══════════════════════════════════════════════╝\n\n"
-                "  <i>✦  Loading your dashboard…  ✦</i>"
-            )
-            await asyncio.sleep(0.42)
-        else:
-            msg = None
-
-        # Fetch stats
+        # ── Fetch stats ───────────────────────────────────────
         score   = self.quiz_manager.get_score(user.id)
         stats   = self.quiz_manager.get_user_stats(user.id)
         q_count = len(self.quiz_manager.questions)
@@ -448,9 +424,9 @@ class TelegramQuizBot:
         level_txt       = UI.level(score)
         rank_pos        = self._get_user_rank_position(user.id)
         rank_line       = f"#{rank_pos} Global" if rank_pos else "Not Ranked Yet"
+        streak_d        = f"{streak} Days" if streak > 0 else "0 Days"
 
-        streak_d = f"{streak} Days" if streak > 0 else "0 Days"
-
+        # ── Build text ────────────────────────────────────────
         if is_pm:
             text = (
                 f"╔══════════════════════════════════════════════╗\n"
@@ -476,7 +452,6 @@ class TelegramQuizBot:
                 f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
             )
         else:
-            q_count = len(self.quiz_manager.questions)
             text = (
                 f"🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Quiz Academy\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -499,14 +474,42 @@ class TelegramQuizBot:
             [InlineKeyboardButton("🔴 Join CLAT Vision",  url="https://t.me/CLAT_Vision")],
         ])
 
-        if msg:
-            ok = await self._edit(msg, text, kb)
-            if not ok:
-                await self._reply(update, text, reply_markup=kb)
+        # ── Deliver ───────────────────────────────────────────
+        if edit_msg is not None:
+            # Callback mode: edit the existing message in place — no new messages
+            await self._edit(edit_msg, text, kb)
+            self.tracker.save_tracked(chat.id, "start", edit_msg.message_id)
         else:
-            await self._reply(update, text, reply_markup=kb)
+            # Command mode: delete previous, then send fresh (animate in DM)
+            await self.tracker.delete_previous(context.bot, chat.id, "start")
+            if is_pm:
+                msg = await self._reply(update, "✨")
+                if msg:
+                    self.tracker.save_tracked(chat.id, "start", msg.message_id)
+                await asyncio.sleep(0.22)
+                await self._edit(msg, "✨  🌟  ✨")
+                await asyncio.sleep(0.25)
+                await self._edit(msg, "🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓")
+                await asyncio.sleep(0.30)
+                await self._edit(msg,
+                    "╔══════════════════════════════════════════════╗\n"
+                    "║          🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓              ║\n"
+                    "║          ✦  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐀𝐃𝐄𝐌𝐘</b>  ✦              ║\n"
+                    "╚══════════════════════════════════════════════╝\n\n"
+                    "  <i>✦  Loading your dashboard…  ✦</i>"
+                )
+                await asyncio.sleep(0.42)
+                ok = await self._edit(msg, text, kb)
+                if not ok:
+                    new_msg = await self._reply(update, text, reply_markup=kb)
+                    if new_msg:
+                        self.tracker.save_tracked(chat.id, "start", new_msg.message_id)
+            else:
+                new_msg = await self._reply(update, text, reply_markup=kb)
+                if new_msg:
+                    self.tracker.save_tracked(chat.id, "start", new_msg.message_id)
 
-        # Register user in DB
+        # ── Register user in DB ───────────────────────────────
         if self.db:
             try:
                 self.db.upsert_user(user.id, {
@@ -521,7 +524,8 @@ class TelegramQuizBot:
 
     # ─── /help ───────────────────────────────────────────────
 
-    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       edit_msg=None):
         text = (
             f"╔══════════════════════════════════════════╗\n"
             f"║   🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Command Guide   ║\n"
@@ -582,8 +586,11 @@ class TelegramQuizBot:
              InlineKeyboardButton("🎖 Achievements",  callback_data="achievements")],
             [InlineKeyboardButton("🏠 Home",           callback_data="back_start")],
         ])
-        await self._reply(update, text, reply_markup=kb,
-                          disable_web_page_preview=True)
+        if edit_msg is not None:
+            await self._edit(edit_msg, text, kb)
+        else:
+            await self._reply(update, text, reply_markup=kb,
+                              disable_web_page_preview=True)
 
     # ─── /ping ───────────────────────────────────────────────
 
@@ -985,15 +992,19 @@ class TelegramQuizBot:
 
     # ─── /stats ──────────────────────────────────────────────
 
-    async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        edit_msg=None):
         user    = update.effective_user
         chat    = update.effective_chat
         is_pm   = chat.type == "private"
-        if is_pm:
-            await self.tracker.delete_previous(context.bot, chat.id, "stats")
-        msg     = await self._reply(update, "📊")
-        if is_pm and msg:
-            self.tracker.save_tracked(chat.id, "stats", msg.message_id)
+        if edit_msg is None:
+            if is_pm:
+                await self.tracker.delete_previous(context.bot, chat.id, "stats")
+            msg = await self._reply(update, "📊")
+            if is_pm and msg:
+                self.tracker.save_tracked(chat.id, "stats", msg.message_id)
+        else:
+            msg = None
         mention = UI.mention(user.id, user.first_name or "User")
 
         score  = self.quiz_manager.get_score(user.id)
@@ -1053,24 +1064,29 @@ class TelegramQuizBot:
              InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard")],
             [InlineKeyboardButton("🏠 Home",          callback_data="back_start")],
         ])
-        if msg:
-            ok = await self._edit(msg, text, kb)
-            if not ok:
+        target = edit_msg or msg
+        if target:
+            ok = await self._edit(target, text, kb)
+            if not ok and edit_msg is None:
                 await self._reply(update, text, reply_markup=kb)
         else:
             await self._reply(update, text, reply_markup=kb)
 
     # ─── /achievements ───────────────────────────────────────
 
-    async def cmd_achievements(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_achievements(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                               edit_msg=None):
         user    = update.effective_user
         chat    = update.effective_chat
         is_pm   = chat.type == "private"
-        if is_pm:
-            await self.tracker.delete_previous(context.bot, chat.id, "achievements")
-        msg     = await self._reply(update, "🎖")
-        if is_pm and msg:
-            self.tracker.save_tracked(chat.id, "achievements", msg.message_id)
+        if edit_msg is None:
+            if is_pm:
+                await self.tracker.delete_previous(context.bot, chat.id, "achievements")
+            msg = await self._reply(update, "🎖")
+            if is_pm and msg:
+                self.tracker.save_tracked(chat.id, "achievements", msg.message_id)
+        else:
+            msg = None
         mention = UI.mention(user.id, user.first_name or "User")
         score   = self.quiz_manager.get_score(user.id)
         stats   = self.quiz_manager.get_user_stats(user.id)
@@ -1114,9 +1130,10 @@ class TelegramQuizBot:
             [InlineKeyboardButton("🏠 Home",         callback_data="back_start")],
         ])
         result_text = "\n".join(lines)
-        if msg:
-            ok = await self._edit(msg, result_text, kb)
-            if not ok:
+        target = edit_msg or msg
+        if target:
+            ok = await self._edit(target, result_text, kb)
+            if not ok and edit_msg is None:
                 await self._reply(update, result_text, reply_markup=kb)
         else:
             await self._reply(update, result_text, reply_markup=kb)
@@ -1322,6 +1339,8 @@ class TelegramQuizBot:
                 self.tracker.save_tracked(chat.id, "leaderboard", wait_msg.message_id)
         else:
             wait_msg = None
+            if track:
+                self.tracker.save_tracked(chat.id, "leaderboard", edit_msg.message_id)
 
         lb    = self._lb_fetch(mode, chat.id)
         label = self._LB_LABEL.get(mode, "All-Time")
@@ -2383,12 +2402,13 @@ class TelegramQuizBot:
         data  = query.data
 
         if   data == "play_quiz":   await self.cmd_quiz(update, context)
-        elif data == "my_stats":    await self.cmd_stats(update, context)
-        elif data == "help":        await self.cmd_help(update, context)
-        elif data == "back_start":  await self.cmd_start(update, context)
+        elif data == "my_stats":    await self.cmd_stats(update, context, edit_msg=query.message)
+        elif data == "help":        await self.cmd_help(update, context, edit_msg=query.message)
+        elif data == "back_start":  await self.cmd_start(update, context, edit_msg=query.message)
 
         elif data == "leaderboard":
-            await self._show_leaderboard(update, context, mode="global", page=1, track=True)
+            await self._show_leaderboard(update, context, mode="global", page=1,
+                                         edit_msg=query.message, track=True)
 
         elif data == "lb_noop":
             pass  # disabled nav button / page indicator — already answered
@@ -2418,7 +2438,7 @@ class TelegramQuizBot:
                                          edit_msg=query.message)
 
         elif data == "achievements":
-            await self.cmd_achievements(update, context)
+            await self.cmd_achievements(update, context, edit_msg=query.message)
 
         elif data == "botstats":
             await self.cmd_botstats(update, context)
