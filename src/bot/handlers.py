@@ -30,21 +30,21 @@ COMMUNITY  = "@CLAT_Vision"
 
 # ── Rotating motivational greetings for profile screen ────────────────────────
 _PROFILE_GREETINGS = [
-    "✨  Ready to conquer another milestone, {}? 🎯",
-    "📚  Every question solved brings you closer to your dream law school, {}.",
-    "🏆  A new opportunity to climb the leaderboard awaits, {}.",
-    "⚡  Keep learning, keep improving, keep rising, {}.",
-    "🎯  Success is built one quiz at a time, {}.",
-    "🌟  Your CLAT journey continues, {}. Let's make today count.",
-    "💪  Champions are built through consistent practice, {}.",
-    "🚀  Another day, another step closer to CLAT success, {}!",
-    "🔥  You're on your way to the top, {}. Keep pushing!",
-    "📖  Knowledge is your greatest weapon, {}. Stay sharp!",
-    "⭐  Every attempt shapes your future, {}. Stay focused!",
-    "🎓  The best preparation starts now, {}. Let's go!",
-    "🏅  Hard work today, leaderboard tomorrow, {}.",
-    "💡  Sharpen your mind, one quiz at a time, {}.",
-    "🌠  Consistency beats talent, {}. Stay consistent!",
+    "⚡  Let's get it, {}!",
+    "🔥  Welcome back, {}!",
+    "🎯  Ready to climb, {}?",
+    "💪  Crush it today, {}!",
+    "🚀  Time to rise, {}!",
+    "🏆  Top spot won't claim itself, {}.",
+    "📚  CLAT won't crack itself, {}.",
+    "⭐  Make today count, {}.",
+    "💡  Level up time, {}!",
+    "🌟  You've got this, {}.",
+    "🎓  One more session, {}. Let's go!",
+    "🔑  Lock in, {}.",
+    "⚔️  Sharpen up, {}.",
+    "🧠  Big brain energy, {}.",
+    "🏅  Your rank is calling, {}.",
 ]
 
 
@@ -482,27 +482,17 @@ class TelegramQuizBot:
         # ── Build text ────────────────────────────────────────
         if is_pm:
             text = (
-                f"╔══════════════════════════════════════════════╗\n"
-                f"║          🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓              ║\n"
-                f"║          ✦  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐀𝐃𝐄𝐌𝐘</b>  ✦              ║\n"
-                f"╚══════════════════════════════════════════════╝\n\n"
+                f"🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  {mention}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"{greeting}\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"🏆  <b>𝐏𝐑𝐎𝐅𝐈𝐋𝐄  𝐃𝐀𝐒𝐇𝐁𝐎𝐀𝐑𝐃</b>\n\n"
-                f"╭──────────────────────────────────────────────╮\n"
-                f"│  🎖  <b>Rank</b>              :  <b>{rank_txt}  •  {grade}</b>\n"
-                f"│  🌍  <b>Global Position</b> :  <b>{rank_line}</b>\n"
-                f"│  📈  <b>Level</b>             :  <b>{level_txt}</b>\n"
-                f"│  🔥  <b>Streak</b>            :  <b>{streak_d}</b>\n"
-                f"│  🎯  <b>Accuracy</b>         :  <b>{rate}%</b>\n"
-                f"╰──────────────────────────────────────────────╯\n\n"
-                f"📊  <b>𝐒𝐓𝐀𝐓𝐒</b>\n"
-                f"  ✅  <b>Correct</b>              :  <b>{correct}</b>\n"
-                f"  ❌  <b>Wrong</b>                :  <b>{wrong}</b>\n"
-                f"  📚  <b>Quizzes Played</b>  :  <b>{total_q}</b>\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"⚜  <b><i>Train  •  Practice  •  Dominate</i></b>  ⚜\n\n"
-                f"  ⚡  {COMMUNITY}  ·  <b>CLAT 2027</b>"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  🎖  <b>{rank_txt}</b>  ·  <i>{grade}</i>\n"
+                f"│  🌍  <b>{rank_line}</b>  ·  📈  <b>{level_txt}</b>\n"
+                f"│  🔥  <b>{streak_d}</b> streak  ·  🎯  <b>{rate}%</b>\n"
+                f"╰──────────────────────────────────────╯\n\n"
+                f"  ✅  <b>{correct}</b>   ·   ❌  <b>{wrong}</b>   ·   📚  <b>{total_q}</b> played\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"  <i>⚜  Train  ·  Practice  ·  Dominate  ⚜</i>"
             )
         else:
             text = (
@@ -540,16 +530,12 @@ class TelegramQuizBot:
                 if msg:
                     self.tracker.save_tracked(chat.id, "start", msg.message_id)
                 await asyncio.sleep(0.22)
-                await self._edit(msg, "✨  🌟  ✨")
-                await asyncio.sleep(0.25)
-                await self._edit(msg, "🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓")
+                await self._edit(msg, "🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>")
                 await asyncio.sleep(0.30)
                 await self._edit(msg,
-                    "╔══════════════════════════════════════════════╗\n"
-                    "║          🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓              ║\n"
-                    "║          ✦  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐀𝐃𝐄𝐌𝐘</b>  ✦              ║\n"
-                    "╚══════════════════════════════════════════════╝\n\n"
-                    "  <i>✦  Loading your dashboard…  ✦</i>"
+                    "🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "  <i>⚡  Loading your profile…</i>"
                 )
                 await asyncio.sleep(0.42)
                 ok = await self._edit(msg, text, kb)
@@ -1010,29 +996,19 @@ class TelegramQuizBot:
         acc_pbar        = UI.pbar(rate)
 
         text = (
-            f"🏆  <b>𝐒𝐂𝐎𝐑𝐄𝐂𝐀𝐑𝐃</b>\n"
+            f"🏆  <b>𝐒𝐂𝐎𝐑𝐄𝐂𝐀𝐑𝐃</b>  ·  {mention}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"  {mention}\n\n"
             f"╭──────────────────────────────────────╮\n"
-            f"│  🎖  <b>Rank</b>       ›  {rank_txt}  <i>({grade})</i>\n"
-            f"│  📈  <b>Level</b>      ›  {level_txt}\n"
-            f"│  🌍  <b>Position</b>  ›  <b>{pos_text} Global</b>\n"
-            f"╰──────────────────────────────────────╯\n"
-            f"  <i>XP Progress</i>  {xp_bar}\n\n"
+            f"│  🎖  <b>{rank_txt}</b>  ·  <i>{grade}</i>\n"
+            f"│  📈  <b>{level_txt}</b>  ·  🌍  <b>{pos_text} Global</b>\n"
+            f"│  {xp_bar}\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"  ✅  <b>{score}</b>  correct   ·   ❌  <b>{wrong}</b>  wrong   ·   📚  <b>{total}</b>  total\n"
+            f"  🎯  {acc_pbar}  <b>{rate}%</b>\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📊  <b>𝐏𝐄𝐑𝐅𝐎𝐑𝐌𝐀𝐍𝐂𝐄</b>\n\n"
-            f"  ✅  <b>Correct</b>    ›  <b>{score}</b>\n"
-            f"  ❌  <b>Wrong</b>      ›  <b>{wrong}</b>\n"
-            f"  📝  <b>Total</b>      ›  <b>{total}</b>\n"
-            f"  🎯  <b>Accuracy</b>  ›  <b>{rate}%</b>\n\n"
-            f"  {acc_pbar}  <b>{rate}%</b>\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"🔥  <b>𝐒𝐓𝐑𝐄𝐀𝐊𝐒</b>\n\n"
-            f"  ◈  <b>Current</b>  ›  {UI.streak_display(streak)}\n"
-            f"  ◈  <b>Best</b>     ›  <b>{best} days</b>\n"
-            f"  ◈  <b>Today</b>    ›  <b>{today}</b> questions\n\n"
+            f"  🔥  <b>{streak}d</b> streak   ·   🏅  Best  <b>{best}d</b>   ·   📅  Today  <b>{today}</b>\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"  <i>Every correct answer brings you closer to CLAT! 🎯</i>"
+            f"  <i>Every answer gets you closer. 🎯</i>"
         )
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎯 Play Quiz",    callback_data="play_quiz"),
