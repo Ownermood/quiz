@@ -227,6 +227,9 @@ class TelegramQuizBot:
         self.application: Optional[Application] = None
         self._dev                     = None
         self._del_page: dict          = {}
+        # Leaderboard page cache: key → (timestamp, ranked_list)
+        self._lb_cache: dict          = {}
+        self._lb_cache_ttl            = 60  # seconds
 
     # ─── Initialization ──────────────────────────────────────
 
@@ -370,6 +373,8 @@ class TelegramQuizBot:
             await msg.edit_text(text, **kwargs)
             return True
         except Exception as e:
+            if "not modified" in str(e).lower():
+                return True  # identical content — treat as success, no spam
             logger.error(f"_edit error: {e}")
             return False
 
@@ -1193,173 +1198,224 @@ class TelegramQuizBot:
             await self._reply(update, text, reply_markup=kb)
 
     # ─── /leaderboard ────────────────────────────────────────
+    #  Paginated Top-100 leaderboard — 20 per page, 5 pages.
+
+    LB_PAGE_SIZE = 20
+    LB_MAX_RANKS = 100
+    LB_NAME_W    = 13     # display width for usernames (monospace column)
 
     async def cmd_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await self._show_leaderboard(update, context, mode="global")
+        await self._show_leaderboard(update, context, mode="global", page=1)
+
+    # ── Period mapping ─────────────────────────────────────────
+    _LB_PERIOD = {"global": 36500, "weekly": 7, "monthly": 30}
+    _LB_LABEL  = {
+        "global":  "All-Time",
+        "weekly":  "Last 7 Days",
+        "monthly": "Last 30 Days",
+        "group":   "This Group",
+    }
+
+    def _lb_truncate(self, name: str) -> str:
+        """Truncate a username to LB_NAME_W chars with an ellipsis, no wrapping."""
+        name = (name or "").replace("\n", " ").strip()
+        # Escape for HTML <pre> block
+        name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if len(name) > self.LB_NAME_W:
+            return name[:self.LB_NAME_W - 1] + "…"
+        return name
+
+    def _lb_fetch(self, mode: str, chat_id: int) -> list:
+        """Fetch the full ranked list (cached) for a leaderboard mode."""
+        key = f"{mode}:{chat_id if mode == 'group' else 0}"
+        now = time.time()
+        cached = self._lb_cache.get(key)
+        if cached and (now - cached[0]) < self._lb_cache_ttl:
+            return cached[1]
+
+        if mode == "group":
+            data = self.quiz_manager.get_group_leaderboard(chat_id)
+            lb   = data.get("leaderboard", [])
+        elif self.db:
+            days = self._LB_PERIOD.get(mode, 36500)
+            lb   = self.db.get_leaderboard_by_period(days=days, limit=self.LB_MAX_RANKS)
+        else:
+            lb = self.quiz_manager.get_leaderboard(limit=self.LB_MAX_RANKS)
+
+        self._lb_cache[key] = (now, lb)
+        return lb
+
+    def _lb_resolve_names(self, uids: list) -> dict:
+        """Batch-resolve display names for a list of user IDs from the DB."""
+        names: dict = {}
+        if not uids:
+            return names
+        if self.db:
+            try:
+                cursor = self.db.users_col.find(
+                    {"user_id": {"$in": uids}}, {"user_id": 1, "name": 1, "username": 1})
+                for doc in cursor:
+                    n = (doc.get("name") or doc.get("username") or "").strip()
+                    if n:
+                        names[doc["user_id"]] = n
+            except Exception as e:
+                logger.error(f"_lb_resolve_names error: {e}")
+        return names
 
     async def _show_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
-                                mode: str = "global", edit_msg=None):
+                                mode: str = "global", page: int = 1, edit_msg=None):
         """
-        mode: 'global' | 'weekly' | 'monthly' | 'group'
-        edit_msg: message to edit (for callback updates)
+        Paginated leaderboard.
+          mode : 'global' | 'weekly' | 'monthly' | 'group'
+          page : 1-indexed page number (20 entries/page, max 100 ranks)
         """
         chat      = update.effective_chat
-        thread_id = get_thread_id(update)
         is_group  = chat.type in ("group", "supergroup")
+        req_user  = update.effective_user
+
+        # Groups always show the group leaderboard
+        if is_group and mode in ("global", "weekly", "monthly"):
+            mode = "group"
 
         if edit_msg is None:
-            wait_msg = await self._reply(update, "🏆")
+            wait_msg = await self._reply(update, "🏆  <i>Loading leaderboard…</i>")
         else:
             wait_msg = None
 
-        # Determine leaderboard data source
-        if is_group and mode == "global":
-            mode = "group"
-
-        if mode == "group":
-            data    = self.quiz_manager.get_group_leaderboard(chat.id)
-            lb      = data.get("leaderboard", [])
-            total_q = data.get("total_quizzes", 0)
-            acc_g   = data.get("group_accuracy", 0)
-            title   = f"🏆 <b>GROUP LEADERBOARD</b>"
-            footer  = f"\n  Attempts: <b>{total_q}</b>  ·  Group accuracy: <b>{acc_g}%</b>"
-        elif mode == "weekly" and self.db:
-            lb      = self.db.get_leaderboard_by_period(days=7)
-            title   = "🏆 <b>WEEKLY LEADERBOARD</b>  <i>(last 7 days)</i>"
-            footer  = ""
-        elif mode == "monthly" and self.db:
-            lb      = self.db.get_leaderboard_by_period(days=30)
-            title   = "🏆 <b>MONTHLY LEADERBOARD</b>  <i>(last 30 days)</i>"
-            footer  = ""
-        else:
-            lb      = self.quiz_manager.get_leaderboard()
-            title   = "🏆 <b>GLOBAL LEADERBOARD</b>  <i>(all time)</i>"
-            footer  = ""
+        lb = self._lb_fetch(mode, chat.id)
 
         if not lb:
             text = (
-                f"🏆  <b>𝐋𝐄𝐀𝐃𝐄𝐑𝐁𝐎𝐀𝐑𝐃</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🏆  <b>CLAT VISION • LEADERBOARD</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 "  No scores yet — be the first! 🥇\n\n"
                 "  Use /quiz to start playing."
             )
-            if edit_msg:
-                await self._edit(edit_msg, text)
-            elif wait_msg:
-                await self._edit(wait_msg, text)
+            target = edit_msg or wait_msg
+            if target:
+                await self._edit(target, text)
             return
 
-        lines = [f"{title}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"]
+        # ── Pagination math ────────────────────────────────────
+        total      = min(len(lb), self.LB_MAX_RANKS)
+        total_pages = max(1, (total + self.LB_PAGE_SIZE - 1) // self.LB_PAGE_SIZE)
+        page       = max(1, min(page, total_pages))    # clamp — callback security
+        start      = (page - 1) * self.LB_PAGE_SIZE
+        end        = min(start + self.LB_PAGE_SIZE, total)
+        page_slice = lb[start:end]
 
-        # Pre-resolve names: DB first, then live get_chat for unknowns
-        names: dict = {}
-        unknown_uids = []
-        for entry in lb[:10]:
-            uid = entry.get("user_id")
-            if uid == OWNER_ID:
-                names[uid] = OWNER_NAME
-                continue
-            resolved = None
-            if self.db:
-                try:
-                    doc = self.db.users_col.find_one(
-                        {"user_id": uid}, {"name": 1, "username": 1})
-                    if doc:
-                        resolved = (doc.get("name") or doc.get("username") or "").strip() or None
-                except Exception:
-                    pass
-            if resolved:
-                names[uid] = resolved[:20]
-            else:
-                unknown_uids.append(uid)
+        # ── Resolve names for this page only ───────────────────
+        page_uids = [e.get("user_id") for e in page_slice]
+        names     = self._lb_resolve_names(page_uids)
 
-        # Live fetch for unknown users (saves back to DB)
-        for uid in unknown_uids[:5]:
-            try:
-                chat_obj = await context.bot.get_chat(uid)
-                n = (chat_obj.first_name or chat_obj.username or "").strip()
-                if n:
-                    names[uid] = n[:20]
-                    if self.db:
-                        try:
-                            self.db.upsert_user(uid, {
-                                "user_id": uid, "name": n,
-                                "username": chat_obj.username or ""})
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        for i, entry in enumerate(lb[:10]):
+        # ── Build monospace, perfectly-aligned table ───────────
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        rows   = []
+        for i, entry in enumerate(page_slice):
+            rank  = start + i + 1
             uid   = entry.get("user_id")
             score = entry.get("correct_answers", entry.get("score", 0))
-            acc   = entry.get("accuracy", 0)
-            pos   = i + 1
 
-            display = names.get(uid) or f"User {str(uid)[-4:]}"
-            mention = UI.mention(uid, display)
-
-            if pos == 1:
-                lines.append(f"\n🥇  {mention}\n     ▸  <b>{score} correct</b>  ·  <i>{acc}% accuracy</i>")
-            elif pos == 2:
-                lines.append(f"\n🥈  {mention}\n     ▸  <b>{score} correct</b>  ·  <i>{acc}% accuracy</i>")
-            elif pos == 3:
-                lines.append(f"\n🥉  {mention}\n     ▸  <b>{score} correct</b>  ·  <i>{acc}% accuracy</i>")
+            if uid == OWNER_ID:
+                raw_name = "CLAT OWNER"
             else:
-                lines.append(f"\n  <b>{pos}.</b>  {mention}  ·  <b>{score} pts</b>  <i>{acc}%</i>")
+                raw_name = names.get(uid) or f"User{str(uid)[-4:]}"
+            name = self._lb_truncate(raw_name)
 
-        if footer:
-            lines.append(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{footer}")
+            # rank right-aligned (3), name left-padded (LB_NAME_W), score right (6)
+            row = f"{rank:>3}  {name:<{self.LB_NAME_W}}  {score:>6}"
 
-        # Show requester's own rank if they're not in the top 10
-        req_user = update.effective_user
-        if req_user and mode != "group":
+            trail = ""
+            if rank in medals:
+                trail += f"  {medals[rank]}"
+            if req_user and uid == req_user.id:
+                trail += "  ⭐"
+            rows.append(row + trail)
+
+        table = "\n".join(rows)
+        label = self._LB_LABEL.get(mode, "All-Time")
+
+        # ── YOUR POSITION section (always visible) ─────────────
+        my_section = ""
+        if req_user and mode != "group" and self.db:
             try:
-                my_pos = self._get_user_rank_position(req_user.id)
-                if my_pos and my_pos > 10:
-                    my_score = self.quiz_manager.get_score(req_user.id)
-                    my_stats = self.quiz_manager.get_user_stats(req_user.id)
-                    my_acc   = my_stats.get("success_rate", 0)
-                    lines.append(
-                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"  📍  <b>Your rank:</b>  #{my_pos}  ·  {my_score} pts  ·  {my_acc}% acc"
+                info = self.db.get_user_rank_in_period(
+                    req_user.id, self._LB_PERIOD.get(mode, 36500))
+                if info.get("total", 0) > 0:
+                    streak = self.quiz_manager.get_user_stats(
+                        req_user.id).get("current_streak", 0)
+                    my_section = (
+                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"📊  <b>YOUR POSITION</b>\n"
+                        f"   Rank:    #{info['rank']}\n"
+                        f"   Score:   {info['correct']}\n"
+                        f"   Streak:  🔥 {streak}\n"
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"leaderboard my_section: {e}")
+        elif req_user and mode == "group":
+            # Group: find requester within the loaded list
+            for idx, e in enumerate(lb):
+                if e.get("user_id") == req_user.id:
+                    my_section = (
+                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"📊  <b>YOUR POSITION</b>\n"
+                        f"   Rank:    #{idx + 1}\n"
+                        f"   Score:   {e.get('correct_answers', 0)}\n"
+                    )
+                    break
 
-        lines.append(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  <i>Play /quiz to climb the ranks! 🚀</i>")
-        text = "\n".join(lines)
+        text = (
+            f"🏆  <b>CLAT VISION • LEADERBOARD</b>\n"
+            f"<i>{label} · Top {total}</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<pre>{table}</pre>"
+            f"{my_section}"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📄  Page {page}/{total_pages}"
+        )
 
-        # Leaderboard tab buttons — semantic colors
-        if is_group or mode == "group":
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
-                 InlineKeyboardButton("📊 My Stats",  callback_data="my_stats")],
-                [InlineKeyboardButton("🏠 Home",       callback_data="back_start")],
-            ])
-        else:
-            global_btn  = InlineKeyboardButton(
-                "🌍 Global ✦" if mode == "global"  else "🌍 Global",
-                callback_data="lb_global")
-            weekly_btn  = InlineKeyboardButton(
-                "📅 Weekly ✦" if mode == "weekly"  else "📅 Weekly",
-                callback_data="lb_weekly")
-            monthly_btn = InlineKeyboardButton(
-                "🗓 Monthly ✦" if mode == "monthly" else "🗓 Monthly",
-                callback_data="lb_monthly")
-            kb = InlineKeyboardMarkup([
-                [global_btn, weekly_btn, monthly_btn],
-                [InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
-                 InlineKeyboardButton("📊 My Stats",  callback_data="my_stats")],
-                [InlineKeyboardButton("🏠 Home",       callback_data="back_start")],
-            ])
+        kb = self._build_lb_keyboard(mode, page, total_pages, is_group)
 
-        if edit_msg:
-            await self._edit(edit_msg, text, kb)
-        elif wait_msg:
-            await self._edit(wait_msg, text, kb)
+        target = edit_msg or wait_msg
+        if target:
+            await self._edit(target, text, kb)
         else:
             await self._reply(update, text, reply_markup=kb)
+
+    def _build_lb_keyboard(self, mode: str, page: int, total_pages: int,
+                           is_group: bool) -> InlineKeyboardMarkup:
+        """Build navigation + mode-tab keyboard."""
+        # Navigation row — Prev disabled on first, Next on last
+        prev_cb = f"lbp_{mode}_{page-1}" if page > 1 else "lb_noop"
+        next_cb = f"lbp_{mode}_{page+1}" if page < total_pages else "lb_noop"
+        prev_lbl = "◀️ Prev" if page > 1 else "▫️"
+        next_lbl = "Next ▶️" if page < total_pages else "▫️"
+        nav_row = [
+            InlineKeyboardButton(prev_lbl, callback_data=prev_cb),
+            InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data="lb_noop"),
+            InlineKeyboardButton(next_lbl, callback_data=next_cb),
+        ]
+
+        rows = [nav_row]
+        if not is_group and mode != "group":
+            rows.append([
+                InlineKeyboardButton(
+                    "🌍 Global ✦" if mode == "global" else "🌍 Global",
+                    callback_data="lbp_global_1"),
+                InlineKeyboardButton(
+                    "📅 Weekly ✦" if mode == "weekly" else "📅 Weekly",
+                    callback_data="lbp_weekly_1"),
+                InlineKeyboardButton(
+                    "🗓 Monthly ✦" if mode == "monthly" else "🗓 Monthly",
+                    callback_data="lbp_monthly_1"),
+            ])
+        rows.append([
+            InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
+            InlineKeyboardButton("📊 My Stats",  callback_data="my_stats"),
+        ])
+        rows.append([InlineKeyboardButton("🏠 Home", callback_data="back_start")])
+        return InlineKeyboardMarkup(rows)
 
     # ─── /addquiz ────────────────────────────────────────────
 
@@ -2281,18 +2337,33 @@ class TelegramQuizBot:
         elif data == "back_start":  await self.cmd_start(update, context)
 
         elif data == "leaderboard":
-            await self._show_leaderboard(update, context, mode="global")
+            await self._show_leaderboard(update, context, mode="global", page=1)
 
+        elif data == "lb_noop":
+            pass  # disabled nav button / page indicator — already answered
+
+        elif data and data.startswith("lbp_"):
+            # Paginated navigation: lbp_{mode}_{page}
+            parts = data.split("_")
+            mode  = parts[1] if len(parts) > 1 else "global"
+            try:
+                pg = int(parts[2]) if len(parts) > 2 else 1
+            except ValueError:
+                pg = 1
+            if mode not in ("global", "weekly", "monthly", "group"):
+                mode = "global"
+            await self._show_leaderboard(update, context, mode=mode, page=pg,
+                                         edit_msg=query.message)
+
+        # ── Legacy aliases (kept for old messages) ──
         elif data == "lb_global":
-            await self._show_leaderboard(update, context, mode="global",
+            await self._show_leaderboard(update, context, mode="global", page=1,
                                          edit_msg=query.message)
-
         elif data == "lb_weekly":
-            await self._show_leaderboard(update, context, mode="weekly",
+            await self._show_leaderboard(update, context, mode="weekly", page=1,
                                          edit_msg=query.message)
-
         elif data == "lb_monthly":
-            await self._show_leaderboard(update, context, mode="monthly",
+            await self._show_leaderboard(update, context, mode="monthly", page=1,
                                          edit_msg=query.message)
 
         elif data == "achievements":

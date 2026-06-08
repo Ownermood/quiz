@@ -510,3 +510,36 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"get_leaderboard_by_period error: {e}")
             return []
+
+    def get_user_rank_in_period(self, user_id: int, days: int) -> Dict:
+        """
+        Return {rank, correct, total, accuracy} for a single user in the period.
+        Rank computed server-side: 1 + number of users with strictly more correct.
+        Works even when the user is outside the top 100.
+        """
+        try:
+            cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+            user_correct = self.activities_col.count_documents(
+                {"type": "quiz_answer", "is_correct": True,
+                 "user_id": user_id, "timestamp": {"$gte": cutoff}})
+            user_total = self.activities_col.count_documents(
+                {"type": "quiz_answer",
+                 "user_id": user_id, "timestamp": {"$gte": cutoff}})
+
+            if user_total == 0:
+                return {"rank": 0, "correct": 0, "total": 0, "accuracy": 0}
+
+            higher_agg = list(self.activities_col.aggregate([
+                {"$match": {"type": "quiz_answer", "is_correct": True,
+                            "timestamp": {"$gte": cutoff}}},
+                {"$group": {"_id": "$user_id", "c": {"$sum": 1}}},
+                {"$match": {"c": {"$gt": user_correct}}},
+                {"$count": "n"},
+            ]))
+            higher = higher_agg[0]["n"] if higher_agg else 0
+            acc = round(user_correct / user_total * 100, 1) if user_total else 0
+            return {"rank": higher + 1, "correct": user_correct,
+                    "total": user_total, "accuracy": acc}
+        except Exception as e:
+            logger.error(f"get_user_rank_in_period error: {e}")
+            return {"rank": 0, "correct": 0, "total": 0, "accuracy": 0}
