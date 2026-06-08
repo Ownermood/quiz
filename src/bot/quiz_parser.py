@@ -824,14 +824,34 @@ class UniversalQuizParser:
     # ── Near-duplicate removal ─────────────────────────────────────────────
 
     def _dedup(self, questions: List[Dict]) -> List[Dict]:
-        seen: List[str] = []
+        """Remove near-duplicates using 4-gram fingerprinting + sliding window (O(N×50))."""
+        def _ngram_fp(text: str, n: int = 4) -> frozenset:
+            return frozenset(text[i:i+n] for i in range(len(text) - n + 1)) if len(text) >= n else frozenset()
+
+        WINDOW = 50
+        THRESH = 0.85
+
+        seen_exact: set = set()
+        window: list = []
         result: List[Dict] = []
 
         for q in questions:
             qtext = q["question"].lower()
-            if not any(_text_similarity(qtext, s) > 0.85 for s in seen):
-                seen.append(qtext)
-                result.append(q)
+            if qtext in seen_exact:
+                continue
+            fp = _ngram_fp(qtext)
+            if fp:
+                is_dup = False
+                for prev_fp in window[-WINDOW:]:
+                    union = len(fp | prev_fp)
+                    if union and (len(fp & prev_fp) / union) > THRESH:
+                        is_dup = True
+                        break
+                if is_dup:
+                    continue
+                window.append(fp)
+            seen_exact.add(qtext)
+            result.append(q)
 
         return result
 

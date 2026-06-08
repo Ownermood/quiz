@@ -18,7 +18,8 @@ from telegram import (
 )
 from telegram.ext import (
     Application, CommandHandler, PollAnswerHandler,
-    CallbackQueryHandler, MessageHandler, filters, ContextTypes
+    CallbackQueryHandler, MessageHandler, filters, ContextTypes,
+    TypeHandler, ChatMemberHandler
 )
 from telegram.constants import ParseMode
 from telegram.error import TelegramError, Forbidden, BadRequest, TimedOut, NetworkError, RetryAfter
@@ -258,6 +259,12 @@ class TelegramQuizBot:
     def _register_handlers(self):
         app = self.application
 
+        # Group auto-registration — fires before every other handler
+        app.add_handler(TypeHandler(Update, self._auto_register_group), group=-1)
+        # Bot join/leave tracking
+        app.add_handler(ChatMemberHandler(self._handle_my_chat_member,
+                                          ChatMemberHandler.MY_CHAT_MEMBER))
+
         # User commands
         app.add_handler(CommandHandler("start",       self.cmd_start))
         app.add_handler(CommandHandler("help",        self.cmd_help))
@@ -347,6 +354,53 @@ class TelegramQuizBot:
             ])
         except Exception as e:
             logger.warning(f"set_my_commands: {e}")
+
+    # ─── Group tracking ──────────────────────────────────────
+
+    async def _auto_register_group(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Auto-register any group on every update (group=-1, fires before all handlers)."""
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup") and self.db:
+            try:
+                thread_id = get_thread_id(update)
+                self.db.register_group_interaction(
+                    chat_id=chat.id,
+                    thread_id=thread_id,
+                    title=chat.title or "",
+                    username=getattr(chat, "username", "") or "",
+                )
+                if chat.id not in self.quiz_manager.active_chats:
+                    self.quiz_manager.active_chats.append(chat.id)
+            except Exception:
+                pass
+
+    async def _handle_my_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Track bot join/leave/kick events in groups."""
+        if not update.my_chat_member:
+            return
+        chat   = update.effective_chat
+        new_st = update.my_chat_member.new_chat_member.status
+        if new_st in ("member", "administrator"):
+            if self.db:
+                try:
+                    self.db.register_group_interaction(
+                        chat_id=chat.id,
+                        title=chat.title or "",
+                        username=getattr(chat, "username", "") or "",
+                    )
+                except Exception:
+                    pass
+            if chat.id not in self.quiz_manager.active_chats:
+                self.quiz_manager.active_chats.append(chat.id)
+            logger.info(f"[JOIN] Bot added to {chat.id} ({chat.title!r})")
+        elif new_st in ("left", "kicked", "banned"):
+            self.quiz_manager.remove_active_chat(chat.id)
+            if self.db:
+                try:
+                    self.db.remove_inactive_group(chat.id)
+                except Exception:
+                    pass
+            logger.info(f"[LEAVE] Bot removed from {chat.id} ({chat.title!r})")
 
     # ─── Core helpers ─────────────────────────────────────────
 
@@ -584,7 +638,6 @@ class TelegramQuizBot:
             f"🎯  <b>𝐐𝐔𝐈𝐙  𝐂𝐄𝐍𝐓𝐄𝐑</b>\n"
             f"╭──────────────────────────────────────────╮\n"
             f"│  /quiz              ›  Start a quiz\n"
-            f"│  /quiz [topic]  ›  Quiz by subject\n"
             f"│  /q                  ›  Quick shortcut\n"
             f"│  /categories      ›  Browse all topics\n"
             f"╰──────────────────────────────────────────╯\n\n"
@@ -920,6 +973,13 @@ class TelegramQuizBot:
                 })
             except Exception as e:
                 logger.error(f"DB poll_answer: {e}")
+
+        # Invalidate leaderboard caches so next /lb shows fresh data
+        if chat_id:
+            self._lb_cache.pop(f"group:{chat_id}", None)
+        self._lb_cache.pop("global:0", None)
+        self._lb_cache.pop("weekly:0", None)
+        self._lb_cache.pop("monthly:0", None)
 
         # Send milestone notification (PM only, non-intrusive)
         if is_correct:
@@ -1329,8 +1389,11 @@ class TelegramQuizBot:
             return cached[1]
 
         if mode == "group":
-            data = self.quiz_manager.get_group_leaderboard(chat_id)
-            lb   = data.get("leaderboard", [])
+            if self.db:
+                lb = self.db.get_group_leaderboard_db(chat_id)
+            else:
+                data = self.quiz_manager.get_group_leaderboard(chat_id)
+                lb   = data.get("leaderboard", [])
         elif self.db:
             days = self._LB_PERIOD.get(mode, 36500)
             lb   = self.db.get_leaderboard_by_period(days=days, limit=self.LB_MAX_RANKS)

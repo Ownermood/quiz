@@ -140,11 +140,11 @@ class DatabaseManager:
 
     # ── Poll → Question mapping ───────────────────────────────────────────────
 
-    def save_poll_mapping(self, poll_id: str, quiz_id: int):
+    def save_poll_mapping(self, poll_id: str, quiz_id: int, chat_id: int = 0):
         try:
             self.poll_map_col.update_one(
                 {"poll_id": poll_id},
-                {"$set": {"quiz_id": quiz_id}},
+                {"$set": {"quiz_id": quiz_id, "chat_id": chat_id}},
                 upsert=True
             )
         except Exception as e:
@@ -552,3 +552,88 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"get_user_rank_in_period error: {e}")
             return {"rank": 0, "correct": 0, "total": 0, "accuracy": 0}
+
+    def get_unseen_group_chat_ids(self) -> List[int]:
+        """Return group chat_ids from activity/poll data not yet in groups_col."""
+        try:
+            known   = {g["chat_id"] for g in self.groups_col.find({}, {"chat_id": 1, "_id": 0})}
+            pm_ids  = {d["chat_id"] for d in self.poll_map_col.find(
+                {"chat_id": {"$lt": 0}}, {"chat_id": 1, "_id": 0}) if d.get("chat_id")}
+            act_ids = {d["chat_id"] for d in self.activities_col.find(
+                {"chat_id": {"$lt": 0}}, {"chat_id": 1, "_id": 0}) if d.get("chat_id")}
+            return list((pm_ids | act_ids) - known)
+        except Exception as e:
+            logger.error(f"get_unseen_group_chat_ids: {e}")
+            return []
+
+    def get_active_groups_count(self, hours: int = 24) -> int:
+        """Count groups with activity in the last N hours."""
+        try:
+            cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+            return self.groups_col.count_documents({"last_active": {"$gte": cutoff}})
+        except Exception as e:
+            logger.error(f"get_active_groups_count: {e}")
+            return 0
+
+    def get_group_leaderboard_db(self, chat_id: int, limit: int = 10) -> List[Dict]:
+        """Persistent group leaderboard from activities collection."""
+        try:
+            correct_agg = list(self.activities_col.aggregate([
+                {"$match": {"type": "quiz_answer", "is_correct": True, "chat_id": chat_id}},
+                {"$group": {"_id": "$user_id", "correct": {"$sum": 1}}}
+            ]))
+            total_agg = list(self.activities_col.aggregate([
+                {"$match": {"type": "quiz_answer", "chat_id": chat_id}},
+                {"$group": {"_id": "$user_id", "total": {"$sum": 1}}}
+            ]))
+            correct_map = {r["_id"]: r["correct"] for r in correct_agg}
+            total_map   = {r["_id"]: r["total"]   for r in total_agg}
+            all_uids    = set(correct_map.keys()) | set(total_map.keys())
+            entries = []
+            for uid in all_uids:
+                c = correct_map.get(uid, 0)
+                t = total_map.get(uid, 0)
+                acc = round(c / t * 100, 1) if t > 0 else 0
+                entries.append({
+                    "user_id":         uid,
+                    "correct_answers": c,
+                    "total_attempts":  t,
+                    "accuracy":        acc,
+                })
+            entries.sort(key=lambda x: x["correct_answers"], reverse=True)
+            return entries[:limit]
+        except Exception as e:
+            logger.error(f"get_group_leaderboard_db: {e}")
+            return []
+
+    def add_questions_bulk(self, questions: List[Dict]) -> int:
+        """Bulk insert questions atomically. Returns count inserted."""
+        if not questions:
+            return 0
+        try:
+            count       = len(questions)
+            counter_doc = self.db["_counters"].find_one_and_update(
+                {"_id": "questions"},
+                {"$inc": {"seq": count}},
+                upsert=True,
+                return_document=True
+            )
+            end_seq   = counter_doc["seq"]
+            start_seq = end_seq - count + 1
+            now_iso   = datetime.utcnow().isoformat()
+            docs = [
+                {
+                    "id":             start_seq + i,
+                    "question":       q["question"],
+                    "options":        q["options"],
+                    "correct_answer": q["correct_answer"],
+                    "category":       q.get("category", "General"),
+                    "created_at":     now_iso,
+                }
+                for i, q in enumerate(questions)
+            ]
+            result = self.questions_col.insert_many(docs, ordered=False)
+            return len(result.inserted_ids)
+        except Exception as e:
+            logger.error(f"add_questions_bulk: {e}")
+            return 0

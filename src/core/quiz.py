@@ -164,15 +164,16 @@ class QuizManager:
         added, db_saved = 0, 0
         duplicates, errors = [], []
 
+        # Build set once O(N) instead of per-question list rebuild O(N²)
+        existing_set = {q["question"].strip() for q in self.questions}
+
         for q in questions:
             question = q.get("question", "").strip()
             options  = q.get("options", [])
             correct  = q.get("correct_answer", 0)
             category = q.get("category", "General")
 
-            # Duplicate check
-            existing = [ex["question"].strip() for ex in self.questions]
-            if question in existing:
+            if question in existing_set:
                 duplicates.append(question)
                 continue
 
@@ -184,6 +185,7 @@ class QuizManager:
                         "options": options, "correct_answer": correct, "category": category
                     })
                     self.questions.append(new_q)
+                    existing_set.add(question)
                     added    += 1
                     db_saved += 1
                 else:

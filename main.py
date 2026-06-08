@@ -135,6 +135,26 @@ def run_polling_mode(config: Config):
         except Exception as e:
             logger.warning(f"Could not pre-load groups: {e}")
 
+        # Backfill groups seen in activity/poll data but not yet registered
+        try:
+            missing_ids = db_mgr.get_unseen_group_chat_ids()
+            recovered = 0
+            for cid in missing_ids:
+                try:
+                    chat_obj = await bot.application.bot.get_chat(cid)
+                    db_mgr.register_group_interaction(
+                        chat_id=cid,
+                        title=chat_obj.title or "",
+                        username=getattr(chat_obj, "username", "") or "",
+                    )
+                    recovered += 1
+                except Exception:
+                    pass
+            if recovered:
+                logger.info(f"[STARTUP] Group backfill: +{recovered} groups synced")
+        except Exception as _be:
+            logger.warning(f"[STARTUP] Group backfill error: {_be}")
+
         scheduler = AutoQuizScheduler(bot, quiz_mgr, db_manager=db_mgr, interval_minutes=30)
 
         logger.info("🎯 Bot is live! Listening for messages… (Ctrl+C to stop)")
@@ -257,7 +277,8 @@ def run_polling_mode(config: Config):
                 logger.warning(f"[STARTUP] Welcome screen error: {e}")
             await bot.application.updater.start_polling(
                 drop_pending_updates=True,
-                allowed_updates=["message", "poll_answer", "callback_query"],
+                allowed_updates=["message", "poll_answer", "callback_query",
+                                 "my_chat_member", "chat_member"],
             )
             try:
                 await asyncio.Event().wait()
