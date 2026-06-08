@@ -139,7 +139,7 @@ def run_polling_mode(config: Config):
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
                 total_q = len(quiz_mgr.questions)
-                total_u = db_mgr.get_total_users() if db_mgr else 0
+                total_u = len(db_mgr.get_pm_accessible_users()) if db_mgr else 0
                 total_g = len(db_mgr.get_all_groups()) if db_mgr else 0
                 now     = datetime.now().strftime("%d %b %Y  •  %I:%M %p")
 
