@@ -187,22 +187,30 @@ def run_polling_mode(config: Config):
                     except Exception as e:
                         logger.warning(f"[STARTUP] Owner card failed: {e}")
 
-                # ── Premium educational welcome (shared by PM + groups) ──
+                # ── Startup broadcast (shared by PM + groups) ────────
+                _bu = getattr(bot.application.bot, "username", None) or "MissQuiz_Bot"
+                _blink = f'<a href="https://t.me/{_bu}">Miss Quiz 🎓</a>'
                 welcome_msg = (
-                    f"🎓  <b>CLAT VISION</b>\n"
-                    f"<i>Your CLAT Preparation Companion</i>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"<b>Welcome Back!</b> 👋\n\n"
-                    f"Practice smarter, improve your rank, and test your "
-                    f"knowledge with interactive quizzes.\n\n"
-                    f"  📚  <b>{total_q:,}</b> Questions Ready\n"
-                    f"  🏆  Leaderboard Active\n"
-                    f"  ⚡  Systems Online\n\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"Choose an option below to begin."
+                    f"╔══════════════════════════════════════╗\n"
+                    f"║       🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓        ║\n"
+                    f"╚══════════════════════════════════════╝\n\n"
+                    f"🌷  <b>ᴏʜ ᴍʏ, ʟᴏᴏᴋ ᴡʜᴏ'ꜱ ʜᴇʀᴇ!</b>  🌷\n\n"
+                    f"<b>ʜɪɪɪɪ ᴅᴀʀʟɪɴɢ!</b> 💕\n\n"
+                    f"💞 ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ {_blink}\n"
+                    f"ʏᴏᴜʀ ꜱᴜᴘᴇʀ ᴀᴅᴏʀᴀʙʟᴇ ᴘʀᴇᴍɪᴜᴍ ᴄʟᴀᴛ ᴄᴏᴍᴘᴀɴɪᴏɴ! 💞\n\n"
+                    f"☘️ ɪ'ᴍ ꜱᴏ ᴛʜʀɪʟʟᴇᴅ ʏᴏᴜ'ʀᴇ ʜᴇʀᴇ!\n\n"
+                    f"🍁 ʟᴇᴛ'ꜱ ᴍᴀᴋᴇ ᴇᴠᴇʀʏ ꜱᴇꜱꜱɪᴏɴ ᴍᴀɢɪᴄᴀʟ —\n"
+                    f"🍁 ᴇᴠᴇʀʏ Qᴜᴇꜱᴛɪᴏɴ ᴀ ꜱᴘᴀʀᴋʟᴇ,\n"
+                    f"🍁 ᴇᴠᴇʀʏ ᴀɴꜱᴡᴇʀ ᴀ ꜱᴡᴇᴇᴛ ᴠɪᴄᴛᴏʀʏ!\n\n"
+                    f"🎓 <b>ʀᴇᴀᴅʏ ᴛᴏ ɢʟᴏᴡ?</b> 🎓\n\n"
+                    f"🎓 ᴊᴜꜱᴛ ᴛʏᴘᴇ /quiz ᴀɴᴅ ʟᴇᴛ'ꜱ ᴄʀᴇᴀᴛᴇ ꜱᴏᴍᴇ ʙʀɪʟʟɪᴀɴᴄᴇ ᴛᴏɢᴇᴛʜᴇʀ! ❤️\n\n"
+                    f"🥰 ʏᴏᴜʀ ʟᴏᴠɪɴɢ Qᴜɪᴢ ʙᴜᴅᴅʏ ɪꜱ ᴀʟʟ ʏᴏᴜʀꜱ ~ 🥰\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📚 <b>{total_q:,}</b> Qᴜᴇꜱᴛɪᴏɴꜱ  ·  ⚡ ᴏɴʟɪɴᴇ\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 )
                 welcome_kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🚀 Start Quiz",   callback_data="play_quiz")],
+                    [InlineKeyboardButton("🎓 Start Quiz",   callback_data="play_quiz")],
                     [InlineKeyboardButton("🏆 Leaderboard",  callback_data="leaderboard"),
                      InlineKeyboardButton("📊 My Stats",     callback_data="my_stats")],
                 ])
