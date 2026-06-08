@@ -152,6 +152,12 @@ def run_polling_mode(config: Config):
 
                 logger.info("[STARTUP] Welcome Screen Loaded")
 
+                # Delete previous startup welcome messages before sending new ones
+                try:
+                    await bot.tracker.startup_cleanup(bot.application.bot)
+                except Exception as _ce:
+                    logger.warning(f"[STARTUP] Tracker cleanup error: {_ce}")
+
                 # ── Owner: technical status card ──
                 if OWNER_ID:
                     owner_msg = (
@@ -199,9 +205,10 @@ def run_polling_mode(config: Config):
                     if u.get("user_id") == OWNER_ID:
                         continue
                     try:
-                        await bot.application.bot.send_message(
+                        wm = await bot.application.bot.send_message(
                             chat_id=u["user_id"], text=welcome_msg,
                             parse_mode="HTML", reply_markup=welcome_kb)
+                        bot.tracker.save_tracked(u["user_id"], "welcome", wm.message_id)
                         sent += 1
                         await asyncio.sleep(0.05)
                     except Exception:
@@ -214,9 +221,10 @@ def run_polling_mode(config: Config):
                 grp_sent = 0
                 for g in groups:
                     try:
-                        await bot.application.bot.send_message(
+                        wm = await bot.application.bot.send_message(
                             chat_id=g["chat_id"], text=welcome_msg,
                             parse_mode="HTML", reply_markup=welcome_kb)
+                        bot.tracker.save_tracked(g["chat_id"], "welcome", wm.message_id)
                         grp_sent += 1
                         await asyncio.sleep(0.05)
                     except Exception:

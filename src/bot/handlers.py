@@ -204,6 +204,7 @@ class TelegramQuizBot:
 
     def __init__(self, quiz_manager, db_manager=None):
         from src.core.quiz_cleanup import QuizCleanupManager
+        from src.core.message_tracker import BotMessageTracker
         self.quiz_manager             = quiz_manager
         self.db                       = db_manager
         self.application: Optional[Application] = None
@@ -214,6 +215,8 @@ class TelegramQuizBot:
         self._lb_cache_ttl            = 60  # seconds
         # Centralized single-active-quiz cleanup manager (shared by all paths)
         self.cleanup                  = QuizCleanupManager(db_manager)
+        # Auto-cleanup: track and replace old bot messages per type per chat
+        self.tracker                  = BotMessageTracker(db_manager)
 
     # ─── Initialization ──────────────────────────────────────
 
@@ -402,11 +405,18 @@ class TelegramQuizBot:
         user    = update.effective_user
         name    = user.first_name or "Student"
         mention = UI.mention(user.id, name)
-        is_pm   = update.effective_chat.type == "private"
+        chat    = update.effective_chat
+        is_pm   = chat.type == "private"
+
+        # DM: delete the previous /start message before sending a fresh one
+        if is_pm:
+            await self.tracker.delete_previous(context.bot, chat.id, "start")
 
         # 5-frame emoji animation (PM only)
         if is_pm:
             msg = await self._reply(update, "✨")
+            if msg:
+                self.tracker.save_tracked(chat.id, "start", msg.message_id)
             await asyncio.sleep(0.22)
             await self._edit(msg, "✨  🌟  ✨")
             await asyncio.sleep(0.25)
@@ -910,7 +920,13 @@ class TelegramQuizBot:
 
     async def cmd_score(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
+        chat    = update.effective_chat
+        is_pm   = chat.type == "private"
+        if is_pm:
+            await self.tracker.delete_previous(context.bot, chat.id, "score")
         msg     = await self._reply(update, "🏆")
+        if is_pm and msg:
+            self.tracker.save_tracked(chat.id, "score", msg.message_id)
         mention = UI.mention(user.id, user.first_name or "User")
         score   = self.quiz_manager.get_score(user.id)
         stats   = self.quiz_manager.get_user_stats(user.id)
@@ -971,7 +987,13 @@ class TelegramQuizBot:
 
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
+        chat    = update.effective_chat
+        is_pm   = chat.type == "private"
+        if is_pm:
+            await self.tracker.delete_previous(context.bot, chat.id, "stats")
         msg     = await self._reply(update, "📊")
+        if is_pm and msg:
+            self.tracker.save_tracked(chat.id, "stats", msg.message_id)
         mention = UI.mention(user.id, user.first_name or "User")
 
         score  = self.quiz_manager.get_score(user.id)
@@ -1042,7 +1064,13 @@ class TelegramQuizBot:
 
     async def cmd_achievements(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
+        chat    = update.effective_chat
+        is_pm   = chat.type == "private"
+        if is_pm:
+            await self.tracker.delete_previous(context.bot, chat.id, "achievements")
         msg     = await self._reply(update, "🎖")
+        if is_pm and msg:
+            self.tracker.save_tracked(chat.id, "achievements", msg.message_id)
         mention = UI.mention(user.id, user.first_name or "User")
         score   = self.quiz_manager.get_score(user.id)
         stats   = self.quiz_manager.get_user_stats(user.id)
@@ -1214,7 +1242,7 @@ class TelegramQuizBot:
     LB_NAME_W    = 13     # display width for usernames (monospace column)
 
     async def cmd_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await self._show_leaderboard(update, context, mode="global", page=1)
+        await self._show_leaderboard(update, context, mode="global", page=1, track=True)
 
     # ── Period mapping ─────────────────────────────────────────
     _LB_PERIOD = {"global": 36500, "weekly": 7, "monthly": 30}
@@ -1270,11 +1298,13 @@ class TelegramQuizBot:
         return names
 
     async def _show_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
-                                mode: str = "global", page: int = 1, edit_msg=None):
+                                mode: str = "global", page: int = 1, edit_msg=None,
+                                track: bool = False):
         """
         Paginated leaderboard.
-          mode : 'global' | 'weekly' | 'monthly' | 'group'
-          page : 1-indexed page number (20 entries/page, max 100 ranks)
+          mode  : 'global' | 'weekly' | 'monthly' | 'group'
+          page  : 1-indexed page number (20 entries/page, max 100 ranks)
+          track : True to delete the previous leaderboard msg and track the new one
         """
         chat      = update.effective_chat
         is_group  = chat.type in ("group", "supergroup")
@@ -1285,7 +1315,11 @@ class TelegramQuizBot:
             mode = "group"
 
         if edit_msg is None:
+            if track:
+                await self.tracker.delete_previous(context.bot, chat.id, "leaderboard")
             wait_msg = await self._reply(update, "🏆  <i>Loading leaderboard…</i>")
+            if track and wait_msg:
+                self.tracker.save_tracked(chat.id, "leaderboard", wait_msg.message_id)
         else:
             wait_msg = None
 
@@ -2357,7 +2391,7 @@ class TelegramQuizBot:
         elif data == "back_start":  await self.cmd_start(update, context)
 
         elif data == "leaderboard":
-            await self._show_leaderboard(update, context, mode="global", page=1)
+            await self._show_leaderboard(update, context, mode="global", page=1, track=True)
 
         elif data == "lb_noop":
             pass  # disabled nav button / page indicator — already answered
