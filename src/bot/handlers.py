@@ -6,6 +6,7 @@ Ultra-premium redesign: modern, elegant, professional.
 import logging
 import asyncio
 import os
+import random
 import re
 import time
 from typing import Optional, Any
@@ -26,6 +27,25 @@ logger   = logging.getLogger(__name__)
 OWNER_ID   = int(os.environ.get("OWNER_ID", "8403136097"))
 OWNER_NAME = "🌷 𝐂𝐋𝐀𝐓 𝐎𝐖𝐍𝐄𝐑 🌷"
 COMMUNITY  = "@CLAT_Vision"
+
+# ── Rotating motivational greetings for profile screen ────────────────────────
+_PROFILE_GREETINGS = [
+    "✨  Ready to conquer another milestone, {}? 🎯",
+    "📚  Every question solved brings you closer to your dream law school, {}.",
+    "🏆  A new opportunity to climb the leaderboard awaits, {}.",
+    "⚡  Keep learning, keep improving, keep rising, {}.",
+    "🎯  Success is built one quiz at a time, {}.",
+    "🌟  Your CLAT journey continues, {}. Let's make today count.",
+    "💪  Champions are built through consistent practice, {}.",
+    "🚀  Another day, another step closer to CLAT success, {}!",
+    "🔥  You're on your way to the top, {}. Keep pushing!",
+    "📖  Knowledge is your greatest weapon, {}. Stay sharp!",
+    "⭐  Every attempt shapes your future, {}. Stay focused!",
+    "🎓  The best preparation starts now, {}. Let's go!",
+    "🏅  Hard work today, leaderboard tomorrow, {}.",
+    "💡  Sharpen your mind, one quiz at a time, {}.",
+    "🌠  Consistency beats talent, {}. Stay consistent!",
+]
 
 
 # ══════════════════════════════════════════════════════════════
@@ -305,6 +325,13 @@ class TelegramQuizBot:
         app.add_handler(CallbackQueryHandler(self.handle_callback))
         app.add_error_handler(self._error_handler)
 
+        # Command cleanup — runs in group 1 AFTER all group-0 command handlers,
+        # so the command is fully processed before its message is deleted.
+        app.add_handler(
+            MessageHandler(filters.COMMAND, self._auto_delete_command),
+            group=1,
+        )
+
     async def _set_commands(self):
         try:
             await self.application.bot.set_my_commands([
@@ -388,15 +415,40 @@ class TelegramQuizBot:
         )
         await self._reply(update, text)
 
-    def _get_user_rank_position(self, user_id: int) -> Optional[int]:
-        """Return global rank position (1-indexed) or None."""
+    # ─── Utility helpers ─────────────────────────────────────
+
+    async def _schedule_delete(self, bot, chat_id: int, message_id: int, delay: int = 60):
+        """Delete a message after `delay` seconds. Silently ignores all errors."""
+        await asyncio.sleep(delay)
         try:
-            lb = self.quiz_manager.get_leaderboard(limit=200)
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception:
+            pass
+
+    async def _auto_delete_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Delete the user's command message to keep chats clean."""
+        msg = update.effective_message
+        if msg:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+
+    def _get_user_rank_position(self, user_id: int) -> Optional[int]:
+        """Return global rank position (1-indexed) from DB activities, or None if unranked."""
+        try:
+            if self.db:
+                result = self.db.get_user_rank_in_period(user_id=user_id, days=36500)
+                rank = result.get("rank", 0)
+                if rank > 0:
+                    return rank
+            # Fallback: in-memory leaderboard (DB-less mode)
+            lb = self.quiz_manager.get_leaderboard(limit=1000)
             for i, entry in enumerate(lb):
                 if entry.get("user_id") == user_id:
                     return i + 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[RANK] rank_position error uid={user_id}: {e}")
         return None
 
     # ─── /start ──────────────────────────────────────────────
@@ -425,6 +477,7 @@ class TelegramQuizBot:
         rank_pos        = self._get_user_rank_position(user.id)
         rank_line       = f"#{rank_pos} Global" if rank_pos else "Not Ranked Yet"
         streak_d        = f"{streak} Days" if streak > 0 else "0 Days"
+        greeting        = random.choice(_PROFILE_GREETINGS).format(mention)
 
         # ── Build text ────────────────────────────────────────
         if is_pm:
@@ -433,7 +486,7 @@ class TelegramQuizBot:
                 f"║          🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓              ║\n"
                 f"║          ✦  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐀𝐃𝐄𝐌𝐘</b>  ✦              ║\n"
                 f"╚══════════════════════════════════════════════╝\n\n"
-                f"🌟  <b>Welcome Back,</b>  {mention}  🌟\n\n"
+                f"{greeting}\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"🏆  <b>𝐏𝐑𝐎𝐅𝐈𝐋𝐄  𝐃𝐀𝐒𝐇𝐁𝐎𝐀𝐑𝐃</b>\n\n"
                 f"╭──────────────────────────────────────────────╮\n"
@@ -508,6 +561,10 @@ class TelegramQuizBot:
                 new_msg = await self._reply(update, text, reply_markup=kb)
                 if new_msg:
                     self.tracker.save_tracked(chat.id, "start", new_msg.message_id)
+                    # Auto-delete group welcome after 60s to prevent chat clutter
+                    asyncio.create_task(
+                        self._schedule_delete(context.bot, chat.id, new_msg.message_id, delay=60)
+                    )
 
         # ── Register user in DB ───────────────────────────────
         if self.db:

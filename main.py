@@ -52,6 +52,15 @@ def send_restart_confirmation_sync(config: Config):
         logger.error(f"Restart confirmation failed: {e}")
 
 
+async def _delete_after(bot_obj, chat_id: int, msg_id: int, delay: int = 60):
+    """Delete a message after `delay` seconds. Used for group welcome auto-cleanup."""
+    await asyncio.sleep(delay)
+    try:
+        await bot_obj.delete_message(chat_id=chat_id, message_id=msg_id)
+    except Exception:
+        pass
+
+
 def cleanup_webhook_sync(token: str):
     async def _cleanup():
         from telegram import Bot
@@ -225,6 +234,10 @@ def run_polling_mode(config: Config):
                             chat_id=g["chat_id"], text=welcome_msg,
                             parse_mode="HTML", reply_markup=welcome_kb)
                         bot.tracker.save_tracked(g["chat_id"], "welcome", wm.message_id)
+                        # Auto-delete group welcome after 60s to prevent chat clutter
+                        asyncio.create_task(
+                            _delete_after(bot.application.bot, g["chat_id"], wm.message_id, delay=60)
+                        )
                         grp_sent += 1
                         await asyncio.sleep(0.05)
                     except Exception:
