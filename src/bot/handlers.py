@@ -1230,13 +1230,11 @@ class TelegramQuizBot:
         "group":   "This Group",
     }
 
-    def _lb_truncate(self, name: str) -> str:
-        """Truncate a username to LB_NAME_W chars with an ellipsis, no wrapping."""
+    def _lb_clip(self, name: str, width: int = 22) -> str:
+        """Single-line clip of a username (no HTML escaping — mention() escapes)."""
         name = (name or "").replace("\n", " ").strip()
-        # Escape for HTML <pre> block
-        name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        if len(name) > self.LB_NAME_W:
-            return name[:self.LB_NAME_W - 1] + "…"
+        if len(name) > width:
+            return name[:width - 1] + "…"
         return name
 
     def _lb_fetch(self, mode: str, chat_id: int) -> list:
@@ -1296,18 +1294,25 @@ class TelegramQuizBot:
         else:
             wait_msg = None
 
-        lb = self._lb_fetch(mode, chat.id)
+        lb    = self._lb_fetch(mode, chat.id)
+        label = self._LB_LABEL.get(mode, "All-Time")
 
         if not lb:
             text = (
                 f"🏆  <b>CLAT VISION • LEADERBOARD</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "  No scores yet — be the first! 🥇\n\n"
-                "  Use /quiz to start playing."
+                f"<i>{label}</i>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"   🥇  No champions yet!\n\n"
+                f"   Be the first to top the board.\n"
+                f"   Tap <b>Play Quiz</b> to begin. 🚀"
             )
+            # IMPORTANT: keep the keyboard so the user can switch tabs / go back
+            kb = self._build_lb_keyboard(mode, 1, 1, is_group)
             target = edit_msg or wait_msg
             if target:
-                await self._edit(target, text)
+                await self._edit(target, text, kb)
+            else:
+                await self._reply(update, text, reply_markup=kb)
             return
 
         # ── Pagination math ────────────────────────────────────
@@ -1322,32 +1327,35 @@ class TelegramQuizBot:
         page_uids = [e.get("user_id") for e in page_slice]
         names     = self._lb_resolve_names(page_uids)
 
-        # ── Build monospace, perfectly-aligned table ───────────
-        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        rows   = []
+        # ── Build premium row list (clickable, emoji-safe) ─────
+        medals    = {1: "🥇", 2: "🥈", 3: "🥉"}
+        rows      = []
         for i, entry in enumerate(page_slice):
             rank  = start + i + 1
             uid   = entry.get("user_id")
             score = entry.get("correct_answers", entry.get("score", 0))
+            is_me = bool(req_user and uid == req_user.id)
 
             if uid == OWNER_ID:
-                raw_name = "CLAT OWNER"
+                raw_name = "CLAT OWNER 🇮🇳"
             else:
-                raw_name = names.get(uid) or f"User{str(uid)[-4:]}"
-            name = self._lb_truncate(raw_name)
+                raw_name = names.get(uid) or f"User {str(uid)[-4:]}"
+            disp    = self._lb_clip(raw_name, 22)
+            mention = UI.mention(uid, disp)
 
-            # rank right-aligned (3), name left-padded (LB_NAME_W), score right (6)
-            row = f"{rank:>3}  {name:<{self.LB_NAME_W}}  {score:>6}"
+            # Rank badge: medal for top 3, padded number otherwise
+            badge = medals.get(rank, f"<code>{rank:>2}.</code>")
 
-            trail = ""
-            if rank in medals:
-                trail += f"  {medals[rank]}"
-            if req_user and uid == req_user.id:
-                trail += "  ⭐"
-            rows.append(row + trail)
+            if is_me:
+                rows.append(f"▸ {badge}  <b>{mention}</b>  ·  <b>{score}</b>  ⭐")
+            else:
+                rows.append(f"{badge}  {mention}  ·  <b>{score}</b>")
 
-        table = "\n".join(rows)
-        label = self._LB_LABEL.get(mode, "All-Time")
+            # Visual gap after the podium (top 3) on page 1
+            if rank == 3 and page == 1:
+                rows.append("┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄")
+
+        body = "\n".join(rows)
 
         # ── YOUR POSITION section (always visible) ─────────────
         my_section = ""
@@ -1359,34 +1367,33 @@ class TelegramQuizBot:
                     streak = self.quiz_manager.get_user_stats(
                         req_user.id).get("current_streak", 0)
                     my_section = (
-                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                         f"📊  <b>YOUR POSITION</b>\n"
-                        f"   Rank:    #{info['rank']}\n"
-                        f"   Score:   {info['correct']}\n"
-                        f"   Streak:  🔥 {streak}\n"
+                        f"   🏅 Rank <b>#{info['rank']}</b>   "
+                        f"⭐ <b>{info['correct']}</b> pts   "
+                        f"🔥 <b>{streak}</b>\n"
                     )
             except Exception as e:
                 logger.error(f"leaderboard my_section: {e}")
         elif req_user and mode == "group":
-            # Group: find requester within the loaded list
             for idx, e in enumerate(lb):
                 if e.get("user_id") == req_user.id:
                     my_section = (
-                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                         f"📊  <b>YOUR POSITION</b>\n"
-                        f"   Rank:    #{idx + 1}\n"
-                        f"   Score:   {e.get('correct_answers', 0)}\n"
+                        f"   🏅 Rank <b>#{idx + 1}</b>   "
+                        f"⭐ <b>{e.get('correct_answers', 0)}</b> pts\n"
                     )
                     break
 
         text = (
             f"🏆  <b>CLAT VISION • LEADERBOARD</b>\n"
-            f"<i>{label} · Top {total}</i>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<pre>{table}</pre>"
+            f"<i>{label}  ·  Top {total}</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{body}\n"
             f"{my_section}"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📄  Page {page}/{total_pages}"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📄  Page <b>{page}</b> of <b>{total_pages}</b>"
         )
 
         kb = self._build_lb_keyboard(mode, page, total_pages, is_group)
@@ -1400,28 +1407,28 @@ class TelegramQuizBot:
     def _build_lb_keyboard(self, mode: str, page: int, total_pages: int,
                            is_group: bool) -> InlineKeyboardMarkup:
         """Build navigation + mode-tab keyboard."""
-        # Navigation row — Prev disabled on first, Next on last
-        prev_cb = f"lbp_{mode}_{page-1}" if page > 1 else "lb_noop"
-        next_cb = f"lbp_{mode}_{page+1}" if page < total_pages else "lb_noop"
-        prev_lbl = "◀️ Prev" if page > 1 else "▫️"
-        next_lbl = "Next ▶️" if page < total_pages else "▫️"
-        nav_row = [
-            InlineKeyboardButton(prev_lbl, callback_data=prev_cb),
-            InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data="lb_noop"),
-            InlineKeyboardButton(next_lbl, callback_data=next_cb),
-        ]
+        # Navigation row — only show Prev/Next when they actually go somewhere.
+        nav_row = []
+        if page > 1:
+            nav_row.append(InlineKeyboardButton(
+                "◀️ Prev", callback_data=f"lbp_{mode}_{page-1}"))
+        nav_row.append(InlineKeyboardButton(
+            f"📄 {page}/{total_pages}", callback_data=f"lbp_{mode}_{page}"))
+        if page < total_pages:
+            nav_row.append(InlineKeyboardButton(
+                "Next ▶️", callback_data=f"lbp_{mode}_{page+1}"))
 
         rows = [nav_row]
         if not is_group and mode != "group":
             rows.append([
                 InlineKeyboardButton(
-                    "🌍 Global ✦" if mode == "global" else "🌍 Global",
+                    "🌍 Global ✅" if mode == "global" else "🌍 Global",
                     callback_data="lbp_global_1"),
                 InlineKeyboardButton(
-                    "📅 Weekly ✦" if mode == "weekly" else "📅 Weekly",
+                    "📅 Weekly ✅" if mode == "weekly" else "📅 Weekly",
                     callback_data="lbp_weekly_1"),
                 InlineKeyboardButton(
-                    "🗓 Monthly ✦" if mode == "monthly" else "🗓 Monthly",
+                    "🗓 Monthly ✅" if mode == "monthly" else "🗓 Monthly",
                     callback_data="lbp_monthly_1"),
             ])
         rows.append([
