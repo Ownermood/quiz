@@ -277,8 +277,9 @@ class TelegramQuizBot:
 
         # Poll + Callbacks
         app.add_handler(PollAnswerHandler(self.handle_poll_answer))
+        app.add_handler(CallbackQueryHandler(self._cb_delquiz, pattern=r"^dq_"))
         app.add_handler(CallbackQueryHandler(
-            self._cb_delquiz, pattern=r"^dq_"))
+            self._handle_inline_quiz_answer, pattern=r"^aq_ans_"))
         app.add_handler(CallbackQueryHandler(self.handle_callback))
         app.add_error_handler(self._error_handler)
 
@@ -671,6 +672,8 @@ class TelegramQuizBot:
     # ─── /quiz ───────────────────────────────────────────────
 
     async def cmd_quiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        from src.core.validators import validate, sanitize, build_explanation
+
         chat      = update.effective_chat
         thread_id = get_thread_id(update)
         track_id  = get_tracking_id(chat.id, thread_id)
@@ -698,37 +701,38 @@ class TelegramQuizBot:
             await self._reply(update, text, reply_markup=kb)
             return
 
-        options = question.get("options", [])
-        if not isinstance(options, list) or len(options) < 2:
+        # Validate and sanitize
+        question = sanitize(question)
+        if not question or not validate(question).valid:
             await self._reply(update, "⚠️ Question data error. Try /quiz again.")
             return
 
-        correct_idx = question.get("correct_answer", 0)
-        if not isinstance(correct_idx, int) or not (0 <= correct_idx < len(options)):
-            correct_idx = 0
+        options     = question["options"]
+        correct_idx = question["correct_answer"]
+        cat         = question.get("category", "General")
+        cat_emoji   = UI.cat_emoji(cat)
+        q_id        = question.get("id")
 
-        cat       = question.get("category", "General")
-        cat_emoji = UI.cat_emoji(cat)
-        q_id      = question.get("id")
+        poll_q = f"{cat_emoji} {question['question']}"
+        if len(poll_q) > 300:
+            poll_q = poll_q[:299] + "…"
 
         poll_kwargs = dict(
-            question          = f"{cat_emoji} {question['question']}",
+            question          = poll_q,
             options           = options,
             type              = Poll.QUIZ,
             correct_option_id = correct_idx,
             is_anonymous      = False,
-            open_period       = 30,
-            explanation       = (
-                f"✅ {options[correct_idx]}\n"
-                f"📚 {cat}  ·  🆔 Q#{q_id}"
-            )
+            explanation       = build_explanation(question),
         )
         if thread_id:
             poll_kwargs["message_thread_id"] = thread_id
 
+        poll_sent = False
         try:
             poll_msg = await update.effective_message.reply_poll(**poll_kwargs)
             poll_id  = poll_msg.poll.id
+            poll_sent = True
 
             if self.db and q_id:
                 self.db.save_poll_mapping(str(poll_id), q_id)
@@ -756,13 +760,35 @@ class TelegramQuizBot:
 
         except TelegramError as e:
             err = str(e).lower()
-            logger.error(f"send_poll error: {e}")
+            if any(w in err for w in ("topic", "thread", "closed")):
+                await self._reply(update, "⚠️ <b>Topic Restricted</b>\n\nThis topic is closed.")
+                return
+            logger.warning(f"[QUIZ] Poll Validation Failed — falling back to inline: {e}")
+
+        # Inline keyboard fallback if poll failed
+        if not poll_sent:
+            labels = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
             text = (
-                "⚠️ <b>Topic Restricted</b>\n\nThis topic is closed."
-                if any(w in err for w in ("topic", "thread", "closed"))
-                else f"⚠️ Could not send quiz:\n<code>{e}</code>"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📚 CLAT VISION  •  QUIZ\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"<b>Category:</b> {cat_emoji} {cat}\n"
+                f"<b>Q#{q_id}</b>\n\n"
+                f"{question['question']}\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"Select the correct answer:"
             )
-            await self._reply(update, text)
+            buttons = []
+            for i, opt in enumerate(options):
+                lbl = f"{labels[i]}  {opt}" if i < len(labels) else opt
+                buttons.append([InlineKeyboardButton(
+                    lbl[:64], callback_data=f"aq_ans_{q_id}_{i}_{correct_idx}")])
+            try:
+                await update.effective_message.reply_text(
+                    text, parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(buttons))
+            except TelegramError as e2:
+                logger.error(f"[QUIZ] Inline fallback also failed: {e2}")
 
     # ─── POLL ANSWER HANDLER ─────────────────────────────────
 
@@ -2200,6 +2226,36 @@ class TelegramQuizBot:
         else:
             await self._reply(update, text_out, reply_markup=kb)
 
+    # ─── INLINE QUIZ ANSWER (fallback mode) ───────────────────
+
+    async def _handle_inline_quiz_answer(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, data: str
+    ):
+        """Handle answer taps on inline-keyboard fallback quizzes."""
+        query = update.callback_query
+        try:
+            # data format: aq_ans_{q_id}_{chosen}_{correct}
+            parts   = data.split("_")
+            chosen  = int(parts[4])
+            correct = int(parts[5])
+        except (IndexError, ValueError):
+            return
+
+        user_id    = query.from_user.id
+        is_correct = (chosen == correct)
+
+        try:
+            self.quiz_manager.record_attempt(user_id, is_correct)
+        except Exception:
+            pass
+
+        icon = "✅" if is_correct else "❌"
+        result_text = "Correct!" if is_correct else "Wrong answer."
+        try:
+            await query.answer(f"{icon} {result_text}", show_alert=False)
+        except Exception:
+            pass
+
     # ─── ERROR HANDLER ────────────────────────────────────────
 
     async def _error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -2262,3 +2318,6 @@ class TelegramQuizBot:
 
         elif data == "devstats_prompt":
             await self.cmd_botstats(update, context)
+
+        elif data and data.startswith("aq_ans_"):
+            await self._handle_inline_quiz_answer(update, context, data)
