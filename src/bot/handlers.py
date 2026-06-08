@@ -41,12 +41,6 @@ class UI:
 
     # ── Progress bars ─────────────────────────────────────────
     @staticmethod
-    def bar(pct: float, width: int = 10) -> str:
-        """Legacy bar — used for leaderboard entry mini-bars only."""
-        filled = max(0, min(width, int(float(pct) / 100 * width)))
-        return "█" * filled + "░" * (width - filled)
-
-    @staticmethod
     def pbar(pct: float, width: int = 10) -> str:
         """Premium colored progress bar — standard across all user screens."""
         filled = max(1, min(width, int(float(pct) / 100 * width)))
@@ -57,11 +51,6 @@ class UI:
         """Blue XP bar to distinguish from accuracy bar."""
         filled = max(1, min(width, int(float(pct) / 100 * width)))
         return "🟦" * filled + "⬜" * (width - filled)
-
-    @staticmethod
-    def mini_bar(pct: float, width: int = 5) -> str:
-        filled = max(0, min(width, int(float(pct) / 100 * width)))
-        return "▰" * filled + "▱" * (width - filled)
 
     # ── Rank tier system (based on correct answers) ───────────
     @staticmethod
@@ -96,14 +85,6 @@ class UI:
                 pct  = (score - prev) / (bp - prev) * 100 if bp > prev else 100
                 return UI.xpbar(pct)
         return "🟦" * 10
-
-    # ── Medal & ranking display ───────────────────────────────
-    MEDALS = ["🥇", "🥈", "🥉"] + ["🏅"] * 20
-
-    @staticmethod
-    def rank_badge(pos: int) -> str:
-        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        return medals.get(pos, f"  {pos}.")
 
     # ── Category system ───────────────────────────────────────
     CATS = {
@@ -281,20 +262,18 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("reload",      self.cmd_reload))
         app.add_handler(CommandHandler("restart",     self.cmd_restart))
 
-        # Poll + Callbacks
+        # Poll + specific-pattern callbacks (MUST precede the catch-all)
         app.add_handler(PollAnswerHandler(self.handle_poll_answer))
         app.add_handler(CallbackQueryHandler(self._cb_delquiz, pattern=r"^dq_"))
         app.add_handler(CallbackQueryHandler(
             self._handle_inline_quiz_answer, pattern=r"^aq_ans_"))
-        app.add_handler(CallbackQueryHandler(self.handle_callback))
-        app.add_error_handler(self._error_handler)
 
         # Bulk import: .txt file
         app.add_handler(MessageHandler(
             filters.Document.TXT | filters.Document.TEXT,
             self.handle_document))
 
-        # Dev module
+        # Dev module — register its specific-pattern callbacks BEFORE the catch-all
         try:
             from src.bot.dev_commands import DeveloperCommands
             if self.db:
@@ -303,15 +282,25 @@ class TelegramQuizBot:
                 app.add_handler(CommandHandler("activity",           self._dev.activity))
                 app.add_handler(CommandHandler("performance",        self._dev.performance_stats))
                 app.add_handler(CommandHandler("broadcast_confirm",  self._dev.broadcast_confirm))
-                app.add_handler(CommandHandler("delbroadcast",       self._dev.delbroadcast))
                 app.add_handler(CommandHandler("delbroadcast_confirm", self._dev.delbroadcast_confirm))
+                # Edit-quiz buttons use `edit_quiz_*` data — pattern must match that
                 app.add_handler(CallbackQueryHandler(
-                    self._dev.handle_edit_quiz_callback, pattern="^eq_"))
+                    self._dev.handle_edit_quiz_callback, pattern=r"^edit_quiz_"))
+                # Dev dashboard buttons (devstats/activity refresh + filters).
+                # Tightened so it does NOT swallow `devstats_prompt` (handled elsewhere).
+                app.add_handler(CallbackQueryHandler(
+                    self._dev.handle_dev_panel_callback,
+                    pattern=r"^(devstats_(refresh|performance|activity)|activity_)"))
                 app.add_handler(MessageHandler(
                     filters.TEXT & ~filters.COMMAND, self._dev.handle_text_input))
                 logger.info("DeveloperCommands ✅")
         except Exception as e:
             logger.warning(f"DeveloperCommands skip: {e}")
+
+        # Catch-all callback handler + error handler — registered LAST so the
+        # specific-pattern handlers above always win.
+        app.add_handler(CallbackQueryHandler(self.handle_callback))
+        app.add_error_handler(self._error_handler)
 
     async def _set_commands(self):
         try:

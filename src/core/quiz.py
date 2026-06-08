@@ -8,7 +8,7 @@ import json
 import random
 import logging
 import traceback
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from src.core.database import DatabaseManager
@@ -419,13 +419,6 @@ class QuizManager:
             return {"leaderboard": [], "total_quizzes": 0, "group_accuracy": 0}
 
     # ─── Compatibility shims (used by dev_commands) ──────────────────────────
-
-    def get_group_last_activity(self, chat_id: str) -> Optional[str]:
-        for uid_str, s in self.stats.items():
-            g = s.get("groups", {}).get(str(chat_id))
-            if g:
-                return s.get("last_activity_date")
-        return None
 
     def get_quiz_stats(self) -> Dict:
         """Return basic quiz stats used by dev_commands after deletion."""

@@ -1964,9 +1964,9 @@ class DeveloperCommands:
                 await self.send_unauthorized_message(update)
                 return
             
-            if not update.effective_user or not update.effective_chat or not update.message:
+            if not update.effective_user or not update.effective_chat or not update.effective_message:
                 return
-            
+
             self.db.log_activity(
                 activity_type='command',
                 user_id=update.effective_user.id,
@@ -1976,8 +1976,8 @@ class DeveloperCommands:
                 command='/performance',
                 success=True
             )
-            
-            loading_msg = await update.message.reply_text("📊 Loading performance metrics...")
+
+            loading_msg = await update.effective_message.reply_text("📊 Loading performance metrics...")
             
             hours = 24
             if context.args and context.args[0].isdigit():
@@ -2080,10 +2080,10 @@ class DeveloperCommands:
                 await self.send_unauthorized_message(update)
                 return
             
-            if not update.effective_user or not update.effective_chat or not update.message:
+            if not update.effective_user or not update.effective_chat or not update.effective_message:
                 return
-            
-            loading_msg = await update.message.reply_text("📊 Loading comprehensive dev stats...")
+
+            loading_msg = await update.effective_message.reply_text("📊 Loading comprehensive dev stats...")
             
             import psutil
             from datetime import datetime, timedelta
@@ -2227,28 +2227,34 @@ class DeveloperCommands:
                 reply = await update.message.reply_text("❌ Error loading dev statistics")
                 await self.auto_clean_message(update.message, reply)
     
-    async def activity(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Live activity stream with filtering and pagination"""
+    async def activity(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       forced_type: str = None, forced_page: int = None):
+        """Live activity stream with filtering and pagination.
+        forced_type/forced_page let callback buttons drive it without context.args."""
         start_time = time.time()
         try:
             if not await self.check_access(update):
                 await self.send_unauthorized_message(update)
                 return
-            
-            if not update.effective_user or not update.effective_chat or not update.message:
+
+            if not update.effective_user or not update.effective_chat or not update.effective_message:
                 return
-            
-            activity_type = context.args[0] if context.args else 'all'
-            page = int(context.args[1]) if context.args and len(context.args) > 1 else 1
-            
+
+            if forced_type is not None:
+                activity_type = forced_type
+                page = forced_page or 1
+            else:
+                activity_type = context.args[0] if context.args else 'all'
+                page = int(context.args[1]) if context.args and len(context.args) > 1 else 1
+
             valid_types = ['all', 'command', 'quiz_sent', 'quiz_answered', 'broadcast', 'error']
             if activity_type not in valid_types:
                 activity_type = 'all'
-            
+
             limit = 50
             offset = (page - 1) * limit
-            
-            loading_msg = await update.message.reply_text(f"📜 Loading activity stream ({activity_type})...")
+
+            loading_msg = await update.effective_message.reply_text(f"📜 Loading activity stream ({activity_type})...")
             
             if activity_type == 'all':
                 activities = self.db.get_recent_activities(limit)
@@ -2578,6 +2584,48 @@ Quiz ID #{quiz_id} doesn't exist.
 ━━━━━━━━━━━━━━━━━━━━━
 Select what to edit:"""
     
+    async def handle_dev_panel_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle devstats / activity dashboard buttons (refresh + filters)."""
+        query = update.callback_query
+        if not query:
+            return
+        try:
+            await query.answer()
+        except Exception:
+            pass
+        if not await self.check_access(update):
+            return
+
+        data = query.data or ""
+        old  = query.message
+        try:
+            if data == "devstats_refresh":
+                await self.devstats(update, context)
+            elif data == "devstats_performance":
+                await self.performance_stats(update, context)
+            elif data in ("devstats_activity", "activity_all"):
+                await self.activity(update, context, forced_type="all")
+            elif data == "activity_command":
+                await self.activity(update, context, forced_type="command")
+            elif data == "activity_quiz_sent":
+                await self.activity(update, context, forced_type="quiz_sent")
+            elif data == "activity_quiz_answered":
+                await self.activity(update, context, forced_type="quiz_answered")
+            elif data == "activity_error":
+                await self.activity(update, context, forced_type="error")
+            elif data.startswith("activity_refresh_"):
+                await self.activity(update, context,
+                                    forced_type=data[len("activity_refresh_"):])
+            else:
+                return
+            # Remove the old panel so the refreshed one is the only copy
+            try:
+                await old.delete()
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"handle_dev_panel_callback error: {e}")
+
     async def handle_edit_quiz_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle all edit quiz callback queries"""
         if not update.callback_query or not update.effective_user:
