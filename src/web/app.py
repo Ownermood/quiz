@@ -153,7 +153,18 @@ async def init_bot():
 
 
 def init_bot_webhook(webhook_url: str):
-    asyncio.run(init_bot())
+    """Start bot init in a background thread so Gunicorn worker boots instantly."""
+    def _run():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(init_bot())
+            logger.info("✅ Telegram bot ready (background init complete)")
+        except Exception as e:
+            logger.error(f"❌ Bot background init failed: {e}", exc_info=True)
+
+    t = threading.Thread(target=_run, daemon=True, name="bot-init")
+    t.start()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
