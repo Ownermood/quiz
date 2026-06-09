@@ -1186,129 +1186,217 @@ class TelegramQuizBot:
 
     # ─── /botstats ───────────────────────────────────────────
 
-    async def cmd_botstats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        msg = await self._reply(update, "📊 <i>Loading analytics...</i>")
-        await asyncio.sleep(0.4)
+    async def cmd_botstats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                           edit_msg=None, page: str = "overview"):
+        # Loading indicator (only on fresh call, not on navigation)
+        if edit_msg is None:
+            wait = await self._reply(update, "📊 <i>Loading analytics...</i>")
+            await asyncio.sleep(0.35)
+        else:
+            wait = None
 
         q_total = len(self.quiz_manager.questions)
-
-        # Users
-        u_total = u_active_d = u_active_w = 0
-        u_new_d = u_new_w = u_new_m = 0
-        # Groups
-        g_total = g_new_d = g_new_w = g_new_m = 0
-        # Quiz attempts
-        d_q = w_q = m_q = a_q = 0
-        d_c = w_c = m_c = a_c = 0
-        d_players: set = set()
-        w_players: set = set()
-        m_players: set = set()
-
+        d = {}
         if self.db:
             try:
-                from datetime import timedelta
-                now   = datetime.utcnow()
-                d_cut = (now - timedelta(days=1)).isoformat()
-                w_cut = (now - timedelta(days=7)).isoformat()
-                m_cut = (now - timedelta(days=30)).isoformat()
-                acts  = self.db.activities_col
-                ucol  = self.db.users_col
-                gcol  = self.db.groups_col
-
-                # ── Users ────────────────────────────────────
-                u_total    = ucol.count_documents({})
-                u_active_d = ucol.count_documents({"last_seen": {"$gte": d_cut}})
-                u_active_w = ucol.count_documents({"last_seen": {"$gte": w_cut}})
-                u_new_d    = ucol.count_documents({"joined_at": {"$gte": d_cut}})
-                u_new_w    = ucol.count_documents({"joined_at": {"$gte": w_cut}})
-                u_new_m    = ucol.count_documents({"joined_at": {"$gte": m_cut}})
-
-                # ── Groups ───────────────────────────────────
-                g_total = gcol.count_documents({})
-                g_new_d = gcol.count_documents({"joined_at": {"$gte": d_cut}})
-                g_new_w = gcol.count_documents({"joined_at": {"$gte": w_cut}})
-                g_new_m = gcol.count_documents({"joined_at": {"$gte": m_cut}})
-
-                # ── Quiz attempts ────────────────────────────
-                d_q = acts.count_documents({"type": "quiz_answer", "timestamp": {"$gte": d_cut}})
-                w_q = acts.count_documents({"type": "quiz_answer", "timestamp": {"$gte": w_cut}})
-                m_q = acts.count_documents({"type": "quiz_answer", "timestamp": {"$gte": m_cut}})
-                a_q = acts.count_documents({"type": "quiz_answer"})
-
-                d_c = acts.count_documents({"type": "quiz_answer", "is_correct": True, "timestamp": {"$gte": d_cut}})
-                w_c = acts.count_documents({"type": "quiz_answer", "is_correct": True, "timestamp": {"$gte": w_cut}})
-                m_c = acts.count_documents({"type": "quiz_answer", "is_correct": True, "timestamp": {"$gte": m_cut}})
-                a_c = acts.count_documents({"type": "quiz_answer", "is_correct": True})
-
-                d_players = set(d["user_id"] for d in acts.find(
-                    {"type": "quiz_answer", "timestamp": {"$gte": d_cut}}, {"user_id": 1}))
-                w_players = set(d["user_id"] for d in acts.find(
-                    {"type": "quiz_answer", "timestamp": {"$gte": w_cut}}, {"user_id": 1}))
-                m_players = set(d["user_id"] for d in acts.find(
-                    {"type": "quiz_answer", "timestamp": {"$gte": m_cut}}, {"user_id": 1}))
-
+                d = self.db.get_analytics_data()
             except Exception as e:
-                logger.error(f"botstats DB error: {e}")
+                logger.error(f"cmd_botstats: {e}")
 
-        def acc(c, t): return f"{round(c/t*100,1)}%" if t else "—"
+        def _acc(c, t):
+            return f"{round(c/t*100,1)}%" if t else "—"
 
-        text = (
-            f"📊 <b>BOT ANALYTICS</b>\n"
-            f"{UI.LINE}\n\n"
+        def _qs(s):
+            att = s.get("attempts", 0)
+            cor = s.get("correct", 0)
+            return att, cor, _acc(cor, att), s.get("players", 0)
 
-            f"<b>👥 USERS</b>\n"
-            f"{UI.THIN}\n"
-            f"  Total      ›  <b>{UI.fmt_num(u_total)}</b>\n"
-            f"  Active 24h ›  <b>{u_active_d}</b>\n"
-            f"  Active 7d  ›  <b>{u_active_w}</b>\n"
-            f"  New today  ›  <b>+{u_new_d}</b>\n"
-            f"  New 7 days ›  <b>+{u_new_w}</b>\n"
-            f"  New 30 days›  <b>+{u_new_m}</b>\n\n"
+        # ── Build page text ───────────────────────────────────
+        if page == "users":
+            u  = d.get("u_total", 0)
+            pm = d.get("u_pm", 0)
+            ad = d.get("u_active_d", 0)
+            aw = d.get("u_active_w", 0)
+            nd = d.get("u_new_d", 0)
+            nw = d.get("u_new_w", 0)
+            nm = d.get("u_new_m", 0)
+            er = d.get("engage_rate", 0)
+            tu = d.get("top_user") or {}
+            tu_name  = tu.get("name") or tu.get("username") or "—"
+            tu_uid   = tu.get("user_id")
+            tu_pts   = tu.get("total_marks", 0)
+            tu_ref   = UI.mention(tu_uid, tu_name[:18]) if tu_uid else tu_name
+            text = (
+                f"📊  <b>𝐁𝐎𝐓  𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>\n"
+                f"{'━'*38}\n\n"
+                f"👥  <b>𝐔𝐒𝐄𝐑𝐒  —  𝐃𝐄𝐓𝐀𝐈𝐋</b>\n"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  Total           ›  <b>{UI.fmt_num(u)}</b>\n"
+                f"│  Broadcast Reach ›  <b>{pm}</b>  (DM-accessible)\n"
+                f"│  Active 24h      ›  <b>{ad}</b>\n"
+                f"│  Active 7d       ›  <b>{aw}</b>\n"
+                f"│  New Today       ›  <b>+{nd}</b>\n"
+                f"│  New This Week   ›  <b>+{nw}</b>\n"
+                f"│  New This Month  ›  <b>+{nm}</b>\n"
+                f"│  Engagement Rate ›  <b>{er}%</b>  (24h)\n"
+                f"│  Top User        ›  {tu_ref}  ⭐{tu_pts:,}\n"
+                f"╰──────────────────────────────────────╯\n\n"
+                f"{'━'*38}\n"
+                f"⚡  {COMMUNITY}  ·  CLAT Vision Analytics"
+            )
 
-            f"<b>💬 GROUPS</b>\n"
-            f"{UI.THIN}\n"
-            f"  Total      ›  <b>{UI.fmt_num(g_total)}</b>\n"
-            f"  New today  ›  <b>+{g_new_d}</b>\n"
-            f"  New 7 days ›  <b>+{g_new_w}</b>\n"
-            f"  New 30 days›  <b>+{g_new_m}</b>\n\n"
+        elif page == "quiz":
+            qd_a, qd_c, qd_acc, qd_p = _qs(d.get("qs_d", {}))
+            qw_a, qw_c, qw_acc, qw_p = _qs(d.get("qs_w", {}))
+            qm_a, qm_c, qm_acc, qm_p = _qs(d.get("qs_m", {}))
+            qa_a, qa_c, qa_acc, _     = _qs(d.get("qs_a", {}))
+            subj = d.get("subj_stats", [])
+            lines = [
+                f"📊  <b>𝐁𝐎𝐓  𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>",
+                f"{'━'*38}",
+                f"",
+                f"🎯  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐓𝐈𝐕𝐈𝐓𝐘</b>",
+                f"",
+                f"24h   ›  <b>{qd_a}</b> attempts  ·  <b>{qd_c}</b> correct"
+                f"  ·  <b>{qd_acc}</b>  ·  <b>{qd_p}</b> players",
+                f"7d    ›  <b>{qw_a}</b> attempts  ·  <b>{qw_c}</b> correct"
+                f"  ·  <b>{qw_acc}</b>  ·  <b>{qw_p}</b> players",
+                f"30d   ›  <b>{qm_a}</b> attempts  ·  <b>{qm_c}</b> correct"
+                f"  ·  <b>{qm_acc}</b>  ·  <b>{qm_p}</b> players",
+                f"All   ›  <b>{qa_a}</b> attempts  ·  <b>{qa_c}</b> correct"
+                f"  ·  <b>{qa_acc}</b>",
+                f"",
+                f"{'━'*38}",
+            ]
+            if subj:
+                lines.append(f"📂  <b>𝐒𝐔𝐁𝐉𝐄𝐂𝐓  𝐁𝐑𝐄𝐀𝐊𝐃𝐎𝐖𝐍</b>")
+                lines.append(f"╭──────────────────────────────────────╮")
+                for s in subj:
+                    cat  = (s.get("_id") or "General")[:18]
+                    att  = s.get("attempts", 0)
+                    cor  = s.get("correct", 0)
+                    sacc = _acc(cor, att)
+                    lines.append(f"│  {cat:<18}  ›  <b>{att}</b> att  <b>{sacc}</b>")
+                lines.append(f"╰──────────────────────────────────────╯")
+            lines += [f"{'━'*38}", f"⚡  {COMMUNITY}  ·  CLAT Vision Analytics"]
+            text = "\n".join(lines)
 
-            f"<b>📚 QUESTIONS</b>\n"
-            f"{UI.THIN}\n"
-            f"  In bank    ›  <b>{UI.fmt_num(q_total)}</b>\n\n"
+        elif page == "top":
+            top5 = []
+            if self.db:
+                try:
+                    top5 = list(self.db.users_col.find(
+                        {}, {"user_id": 1, "name": 1, "username": 1,
+                             "total_marks": 1, "correct_answers": 1,
+                             "quizzes_completed": 1, "xp": 1})
+                        .sort(self.db._LB_SORT)
+                        .limit(5))
+                except Exception:
+                    pass
+            lines = [
+                f"📊  <b>𝐁𝐎𝐓  𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>",
+                f"{'━'*38}",
+                f"",
+                f"🏆  <b>𝐓𝐎𝐏  𝟓  𝐏𝐋𝐀𝐘𝐄𝐑𝐒</b>",
+                f"╭──────────────────────────────────────╮",
+            ]
+            medals = ["🥇", "🥈", "🥉", "  4.", "  5."]
+            for i, u in enumerate(top5):
+                uid   = u.get("user_id")
+                nm    = (u.get("name") or u.get("username") or f"User{str(uid)[-4:]}")[:16]
+                men   = UI.mention(uid, nm) if uid else nm
+                pts   = u.get("total_marks", 0)
+                cor   = u.get("correct_answers", 0)
+                qz    = u.get("quizzes_completed", 0)
+                lines.append(f"│  {medals[i]}  {men}  ⭐{pts:,}  ✅{cor:,}  🎯{qz}")
+            if not top5:
+                lines.append(f"│  No players yet — be the first!")
+            lines += [
+                f"╰──────────────────────────────────────╯",
+                f"",
+                f"{'━'*38}",
+                f"⚡  {COMMUNITY}  ·  CLAT Vision Analytics",
+            ]
+            text = "\n".join(lines)
 
-            f"<b>🎯 QUIZ ACTIVITY — 24h</b>\n"
-            f"{UI.THIN}\n"
-            f"  Attempts   ›  <b>{d_q}</b>   Correct ›  <b>{d_c}</b>\n"
-            f"  Accuracy   ›  <b>{acc(d_c, d_q)}</b>\n"
-            f"  Players    ›  <b>{len(d_players)}</b>\n\n"
+        else:  # overview (default — matches example exactly)
+            u_total    = d.get("u_total", 0)
+            u_pm       = d.get("u_pm", 0)
+            u_active_d = d.get("u_active_d", 0)
+            u_active_w = d.get("u_active_w", 0)
+            u_new_d    = d.get("u_new_d", 0)
+            u_new_w    = d.get("u_new_w", 0)
+            u_new_m    = d.get("u_new_m", 0)
+            g_total    = d.get("g_total", 0)
+            g_new_d    = d.get("g_new_d", 0)
+            g_new_w    = d.get("g_new_w", 0)
+            g_new_m    = d.get("g_new_m", 0)
+            q_fmt      = UI.fmt_num(q_total)
+            qd_a, qd_c, qd_acc, qd_p = _qs(d.get("qs_d", {}))
+            qw_a, qw_c, qw_acc, qw_p = _qs(d.get("qs_w", {}))
+            qm_a, qm_c, qm_acc, qm_p = _qs(d.get("qs_m", {}))
+            qa_a, qa_c, qa_acc, _     = _qs(d.get("qs_a", {}))
+            text = (
+                f"📊  <b>𝐁𝐎𝐓  𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>\n"
+                f"{'━'*38}\n\n"
 
-            f"<b>🎯 QUIZ ACTIVITY — 7 days</b>\n"
-            f"{UI.THIN}\n"
-            f"  Attempts   ›  <b>{w_q}</b>   Correct ›  <b>{w_c}</b>\n"
-            f"  Accuracy   ›  <b>{acc(w_c, w_q)}</b>\n"
-            f"  Players    ›  <b>{len(w_players)}</b>\n\n"
+                f"👥  <b>𝐔𝐒𝐄𝐑𝐒</b>\n"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  Total           ›  <b>{UI.fmt_num(u_total)}</b>\n"
+                f"│  Broadcast Reach ›  <b>{u_pm}</b>  (DM-accessible)\n"
+                f"│  Active 24h      ›  <b>{u_active_d}</b>\n"
+                f"│  Active 7d       ›  <b>{u_active_w}</b>\n"
+                f"│  New Today       ›  <b>+{u_new_d}</b>\n"
+                f"│  New This Week   ›  <b>+{u_new_w}</b>\n"
+                f"│  New This Month  ›  <b>+{u_new_m}</b>\n"
+                f"╰──────────────────────────────────────╯\n\n"
 
-            f"<b>🎯 QUIZ ACTIVITY — 30 days</b>\n"
-            f"{UI.THIN}\n"
-            f"  Attempts   ›  <b>{m_q}</b>   Correct ›  <b>{m_c}</b>\n"
-            f"  Accuracy   ›  <b>{acc(m_c, m_q)}</b>\n"
-            f"  Players    ›  <b>{len(m_players)}</b>\n\n"
+                f"💬  <b>𝐆𝐑𝐎𝐔𝐏𝐒</b>\n"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  Total           ›  <b>{UI.fmt_num(g_total)}</b>\n"
+                f"│  New Today       ›  <b>+{g_new_d}</b>\n"
+                f"│  New This Week   ›  <b>+{g_new_w}</b>\n"
+                f"│  New This Month  ›  <b>+{g_new_m}</b>\n"
+                f"╰──────────────────────────────────────╯\n\n"
 
-            f"<b>🏆 ALL TIME</b>\n"
-            f"{UI.THIN}\n"
-            f"  Attempts   ›  <b>{UI.fmt_num(a_q)}</b>   Correct ›  <b>{UI.fmt_num(a_c)}</b>\n"
-            f"  Accuracy   ›  <b>{acc(a_c, a_q)}</b>\n\n"
+                f"📚  <b>𝐐𝐔𝐄𝐒𝐓𝐈𝐎𝐍  𝐁𝐀𝐍𝐊</b>  ›  <b>{q_fmt}</b> questions\n\n"
+                f"{'━'*38}\n\n"
 
-            f"{UI.LINE}\n"
-            f"  <i>CLAT Vision Quiz Bot Analytics</i>"
-        )
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
-        ]])
-        if msg:
-            await self._edit(msg, text, kb)
+                f"🎯  QUIZ ACTIVITY\n\n"
+                f"24h   ›  <b>{qd_a}</b> attempts  ·  <b>{qd_c}</b> correct"
+                f"  ·  <b>{qd_acc}</b>  ·  <b>{qd_p}</b> players\n"
+                f"7d    ›  <b>{qw_a}</b> attempts  ·  <b>{qw_c}</b> correct"
+                f"  ·  <b>{qw_acc}</b>  ·  <b>{qw_p}</b> players\n"
+                f"30d   ›  <b>{qm_a}</b> attempts  ·  <b>{qm_c}</b> correct"
+                f"  ·  <b>{qm_acc}</b>  ·  <b>{qm_p}</b> players\n"
+                f"All   ›  <b>{qa_a}</b> attempts  ·  <b>{qa_c}</b> correct"
+                f"  ·  <b>{qa_acc}</b>\n\n"
+
+                f"{'━'*38}\n"
+                f"⚡  {COMMUNITY}  ·  CLAT Vision Analytics"
+            )
+
+        # ── Navigation keyboard ───────────────────────────────
+        def _tab(label, p):
+            mark = " ✓" if page == p else ""
+            return InlineKeyboardButton(label + mark, callback_data=f"bs_{p}")
+
+        kb = InlineKeyboardMarkup([
+            [_tab("📊 Overview", "overview"),
+             _tab("👥 Users",    "users"),
+             _tab("🎯 Quiz",     "quiz"),
+             _tab("🏆 Top",      "top")],
+            [InlineKeyboardButton("🔄 Refresh", callback_data=f"bs_refresh_{page}"),
+             InlineKeyboardButton("🏠 Home",    callback_data="nav_home")],
+        ])
+
+        target = edit_msg or wait
+        if target:
+            await self._edit(target, text, kb)
         else:
-            await self._reply(update, text, reply_markup=kb)
+            msg = await self._reply(update, text, reply_markup=kb)
+            if msg and update.effective_user:
+                self._active_msg[update.effective_user.id] = msg
 
     # ─── /leaderboard ────────────────────────────────────────
 
@@ -2370,3 +2458,13 @@ class TelegramQuizBot:
             page  = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
             await self._show_leaderboard(update, context, mode=mode,
                                          page=page, edit_msg=query.message)
+
+        elif data.startswith("bs_"):
+            parts = data.split("_", 2)
+            if len(parts) >= 2 and parts[1] == "refresh":
+                page = parts[2] if len(parts) > 2 else "overview"
+                await self.cmd_botstats(update, context, edit_msg=query.message, page=page)
+            else:
+                page = parts[1] if len(parts) > 1 else "overview"
+                if uid: self._nav_push(uid, "botstats")
+                await self.cmd_botstats(update, context, edit_msg=query.message, page=page)
