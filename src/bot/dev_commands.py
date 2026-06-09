@@ -1774,7 +1774,7 @@ class DeveloperCommands:
             
             # Get latest broadcast from database
             broadcast_data = self.db.get_latest_broadcast()
-            target_count = len(broadcast_data['message_data']) if broadcast_data and 'message_data' in broadcast_data else 0
+            target_count = len(broadcast_data.get('messages', [])) if broadcast_data else 0
             
             # Log command execution immediately
             self.db.log_activity(
@@ -1893,7 +1893,7 @@ class DeveloperCommands:
                 return
             
             broadcast_id = broadcast_data['broadcast_id']
-            broadcast_messages = broadcast_data['message_data']
+            broadcast_messages = broadcast_data.get('messages', [])
             
             if not broadcast_messages:
                 reply = await update.message.reply_text("❌ Broadcast data not found")
@@ -2274,7 +2274,7 @@ Type: {activity_type.upper()}
             
             for activity in activities[:50]:
                 time_ago = self.db.format_relative_time(activity['timestamp'])
-                activity_type_str = activity['activity_type']
+                activity_type_str = activity.get('type') or activity.get('activity_type', 'unknown')
                 user_id = activity.get('user_id')
                 username = activity.get('username', 'Unknown')
                 chat_title = activity.get('chat_title', '')
