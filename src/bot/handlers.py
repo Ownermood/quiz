@@ -24,7 +24,7 @@ from telegram.error import TelegramError, Forbidden, BadRequest
 
 logger   = logging.getLogger(__name__)
 OWNER_ID   = int(os.environ.get("OWNER_ID", "8403136097"))
-OWNER_NAME = "🌷 𝐂𝐋𝐀𝐓 𝐎𝐖𝐍𝐄𝐑 🌷"
+OWNER_NAME = "@CV_OWNER"
 COMMUNITY  = "@CLAT_Vision"
 
 
@@ -333,6 +333,7 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("botstats",    self.cmd_botstats))
         app.add_handler(CommandHandler("leaderboard", self.cmd_leaderboard))
         app.add_handler(CommandHandler("lb",          self.cmd_leaderboard))
+        app.add_handler(CommandHandler("categories",  self.cmd_categories))
         app.add_handler(CommandHandler("ping",        self.cmd_ping))
         app.add_handler(CommandHandler("info",        self.cmd_info))
 
@@ -382,6 +383,7 @@ class TelegramQuizBot:
                 BotCommand("stats",       "📈 Your detailed stats"),
                 BotCommand("botstats",    "📊 Bot-wide statistics"),
                 BotCommand("leaderboard", "🔱 Global leaderboard"),
+                BotCommand("categories",  "📚 Browse quiz categories"),
                 BotCommand("help",        "📖 Command center"),
                 BotCommand("start",       "🚀 Welcome screen"),
                 BotCommand("ping",        "🏓 Connection test"),
@@ -583,6 +585,34 @@ class TelegramQuizBot:
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("🎓 Play Quiz",   callback_data="play_quiz"),
             InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard"),
+        ]])
+        await self._reply(update, text, reply_markup=kb)
+
+    # ─── /categories ─────────────────────────────────────────
+
+    async def cmd_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        text = (
+            f"📚  <b>𝗩𝗜𝗘𝗪 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦</b>\n"
+            f"══════════════════\n\n"
+            f"📑  <b>𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘 𝗤𝗨𝗜𝗭 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦</b>\n\n"
+            f"• General Knowledge  🌍\n"
+            f"• Current Affairs  📰\n"
+            f"• Static GK  📚\n"
+            f"• Science &amp; Technology  🔬\n"
+            f"• History  📜\n"
+            f"• Geography  🗺\n"
+            f"• Economics  💰\n"
+            f"• Political Science  🏛\n"
+            f"• Constitution  📖\n"
+            f"• Constitution &amp; Law  ⚖\n"
+            f"• Arts &amp; Literature  🎭\n"
+            f"• Sports &amp; Games  🎮\n\n"
+            f"🎯  Stay tuned! More quizzes coming soon!\n"
+            f"🛠  Need help? Use /help for more commands!"
+        )
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🎓 Start Quiz", callback_data="play_quiz"),
+            InlineKeyboardButton("🎓 Commands",   callback_data="help"),
         ]])
         await self._reply(update, text, reply_markup=kb)
 
