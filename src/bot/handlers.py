@@ -241,11 +241,11 @@ class TelegramQuizBot:
             bot_inline = "Miss Quiz 🎓"
 
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Start Quiz",      callback_data="play_quiz"),
-             InlineKeyboardButton("🔵 My Stats",        callback_data="my_stats")],
-            [InlineKeyboardButton("🏆 Leaderboard",     callback_data="leaderboard"),
-             InlineKeyboardButton("🟣 Commands",        callback_data="help")],
-            [InlineKeyboardButton("🔴 Join CLAT Vision", url="https://t.me/CLAT_Vision")],
+            [InlineKeyboardButton("🎓 Start Quiz",      callback_data="play_quiz"),
+             InlineKeyboardButton("🎓 My Stats",        callback_data="my_stats")],
+            [InlineKeyboardButton("🎓 Leaderboard",     callback_data="leaderboard"),
+             InlineKeyboardButton("🎓 Commands",        callback_data="help")],
+            [InlineKeyboardButton("🎓 Join CLAT Vision", url="https://t.me/CLAT_Vision")],
         ])
 
         logger.info(f"[STARTUP] Broadcasting to {len(users)} users")
@@ -471,11 +471,11 @@ class TelegramQuizBot:
             bot_inline = "Miss Quiz 🎓"
 
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Start Quiz",       callback_data="play_quiz"),
-             InlineKeyboardButton("🔵 My Stats",         callback_data="my_stats")],
-            [InlineKeyboardButton("🏆 Leaderboard",      callback_data="leaderboard"),
-             InlineKeyboardButton("🟣 Commands",          callback_data="help")],
-            [InlineKeyboardButton("🔴 Join CLAT Vision",  url="https://t.me/CLAT_Vision")],
+            [InlineKeyboardButton("🎓 Start Quiz",       callback_data="play_quiz"),
+             InlineKeyboardButton("🎓 My Stats",         callback_data="my_stats")],
+            [InlineKeyboardButton("🎓 Leaderboard",      callback_data="leaderboard"),
+             InlineKeyboardButton("🎓 Commands",          callback_data="help")],
+            [InlineKeyboardButton("🎓 Join CLAT Vision",  url="https://t.me/CLAT_Vision")],
         ])
 
         if is_pm:
@@ -548,8 +548,8 @@ class TelegramQuizBot:
         )
 
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🟢 Play Quiz",   callback_data="play_quiz"),
-            InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard"),
+            InlineKeyboardButton("🎓 Play Quiz",   callback_data="play_quiz"),
+            InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard"),
         ]])
         await self._reply(update, text, reply_markup=kb)
 
@@ -632,7 +632,7 @@ class TelegramQuizBot:
                 "  Use /addquiz to add questions."
             )
             await self._reply(update, text, reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🟠 Try Again", callback_data="play_quiz")
+                InlineKeyboardButton("🎓 Try Again", callback_data="play_quiz")
             ]]))
             return
 
@@ -789,9 +789,9 @@ class TelegramQuizBot:
             f"  <i>Consistency wins CLAT. Keep going! 💪</i>"
         )
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Play Quiz",   callback_data="play_quiz"),
-             InlineKeyboardButton("🔵 Full Stats",  callback_data="my_stats")],
-            [InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")],
+            [InlineKeyboardButton("🎓 Play Quiz",   callback_data="play_quiz"),
+             InlineKeyboardButton("🎓 Full Stats",  callback_data="my_stats")],
+            [InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard")],
         ])
         await self._reply(update, text, reply_markup=kb)
 
@@ -855,8 +855,8 @@ class TelegramQuizBot:
             f"  <i>Aim for 20+ questions daily!</i>"
         )
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🟢 Play Quiz",   callback_data="play_quiz"),
-            InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard"),
+            InlineKeyboardButton("🎓 Play Quiz",   callback_data="play_quiz"),
+            InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard"),
         ]])
         if msg:
             await self._edit(msg, text, kb)
@@ -982,7 +982,7 @@ class TelegramQuizBot:
             f"  <i>CLAT Vision Quiz Bot Analytics</i>"
         )
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🟢 Play Quiz", callback_data="play_quiz"),
+            InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
         ]])
         if msg:
             await self._edit(msg, text, kb)
@@ -1094,23 +1094,23 @@ class TelegramQuizBot:
         # Leaderboard tab buttons
         if is_group or mode == "group":
             kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("🟢 Play Quiz", callback_data="play_quiz"),
-                InlineKeyboardButton("🔵 My Stats",  callback_data="my_stats"),
+                InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
+                InlineKeyboardButton("🎓 My Stats",  callback_data="my_stats"),
             ]])
         else:
             global_btn  = InlineKeyboardButton(
-                "🔴 Global ✓" if mode == "global"  else "🌍 Global",
+                "🎓 Global ✓" if mode == "global"  else "🎓 Global",
                 callback_data="lb_global")
             weekly_btn  = InlineKeyboardButton(
-                "🟡 Weekly ✓" if mode == "weekly"  else "🟡 Weekly",
+                "🎓 Weekly ✓" if mode == "weekly"  else "🎓 Weekly",
                 callback_data="lb_weekly")
             monthly_btn = InlineKeyboardButton(
-                "🔵 Monthly ✓" if mode == "monthly" else "🔵 Monthly",
+                "🎓 Monthly ✓" if mode == "monthly" else "🎓 Monthly",
                 callback_data="lb_monthly")
             kb = InlineKeyboardMarkup([
                 [global_btn, weekly_btn, monthly_btn],
-                [InlineKeyboardButton("🟢 Play Quiz", callback_data="play_quiz"),
-                 InlineKeyboardButton("🔵 My Stats",  callback_data="my_stats")],
+                [InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
+                 InlineKeyboardButton("🎓 My Stats",  callback_data="my_stats")],
             ])
 
         if edit_msg:
@@ -1336,13 +1336,13 @@ class TelegramQuizBot:
 
         nav = []
         if page > 0:
-            nav.append(InlineKeyboardButton("🔵 ◀ Prev", callback_data=f"dq_page_{page-1}_{user_id}"))
+            nav.append(InlineKeyboardButton("🎓 ◀ Prev", callback_data=f"dq_page_{page-1}_{user_id}"))
         if page < pages - 1:
-            nav.append(InlineKeyboardButton("Next ▶ 🔵", callback_data=f"dq_page_{page+1}_{user_id}"))
+            nav.append(InlineKeyboardButton("Next ▶ 🎓", callback_data=f"dq_page_{page+1}_{user_id}"))
         if nav:
             rows.append(nav)
 
-        rows.append([InlineKeyboardButton("🔴 Cancel", callback_data=f"dq_cancel_{user_id}")])
+        rows.append([InlineKeyboardButton("🎓 Cancel", callback_data=f"dq_cancel_{user_id}")])
         return InlineKeyboardMarkup(rows)
 
     async def _cb_delquiz(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1816,7 +1816,7 @@ class TelegramQuizBot:
         text_out += f"\n{UI.LINE}\n  <i>Use /quiz to test your new questions!</i>"
 
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🟢 Play Quiz", callback_data="play_quiz"),
+            InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
         ]])
         if msg:
             await self._edit(msg, text_out, kb)
