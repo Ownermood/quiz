@@ -25,6 +25,7 @@ from telegram.error import TelegramError, Forbidden, BadRequest
 logger   = logging.getLogger(__name__)
 OWNER_ID   = int(os.environ.get("OWNER_ID", "8403136097"))
 OWNER_NAME = "🌷 𝐂𝐋𝐀𝐓 𝐎𝐖𝐍𝐄𝐑 🌷"
+OWNER_LINK = f'<a href="https://t.me/CLAT_OWNER">{OWNER_NAME}</a>'
 COMMUNITY  = "@CLAT_Vision"
 
 
@@ -766,7 +767,7 @@ class TelegramQuizBot:
             f"│  📛  Name        ›  CLAT Vision Quiz Bot\n"
             f"│  📚  Questions   ›  <b>{q_count}</b>\n"
             f"│  🗄  Database    ›  MongoDB Atlas ✅\n"
-            f"│  👑  Owner       ›  <b>{OWNER_NAME}</b>\n"
+            f"│  👑  Owner       ›  {OWNER_LINK}\n"
             f"╰──────────────────────────────────────╯\n\n"
             f"💬  <b>𝐓𝐇𝐈𝐒  𝐂𝐇𝐀𝐓</b>\n"
             f"╭──────────────────────────────────────╮\n"
@@ -2040,8 +2041,7 @@ class TelegramQuizBot:
         msg = await self._reply(update, "🛠️ <i>Loading developer panel...</i>")
         await asyncio.sleep(0.3)
 
-        mention = UI.mention(user.id,
-            OWNER_NAME if self._is_owner(user.id) else UI.display_name(user))
+        mention = OWNER_LINK if self._is_owner(user.id) else UI.mention(user.id, UI.display_name(user))
         q_count = len(self.quiz_manager.questions)
         chats   = len(self.quiz_manager.active_chats)
         users = groups = 0
@@ -2106,7 +2106,7 @@ class TelegramQuizBot:
         groups = self.db.get_all_groups()
         total  = len(users) + len(groups)
 
-        owner_mention = UI.mention(user.id, OWNER_NAME)
+        owner_mention = OWNER_LINK
         status = await self._reply(update,
             f"📡 <b>BROADCASTING</b>\n"
             f"{UI.LINE}\n\n"
@@ -2212,8 +2212,7 @@ class TelegramQuizBot:
             await self._unauthorized(update)
             return
 
-        mention = UI.mention(user.id,
-            OWNER_NAME if self._is_owner(user.id) else UI.display_name(user))
+        mention = OWNER_LINK if self._is_owner(user.id) else UI.mention(user.id, UI.display_name(user))
         msg = await self._reply(update, "🔄 <i>Syncing from MongoDB...</i>")
         await asyncio.sleep(0.4)
 
@@ -2250,7 +2249,7 @@ class TelegramQuizBot:
         await self._reply(update,
             f"🔄 <b>RESTARTING</b>\n"
             f"{UI.LINE}\n\n"
-            f"  Initiated by {UI.mention(OWNER_ID, OWNER_NAME)}\n"
+            f"  Initiated by {OWNER_LINK}\n"
             f"  Shutting down gracefully...\n"
             f"  ✅ Back online in seconds!"
         )
@@ -2303,8 +2302,7 @@ class TelegramQuizBot:
         if not doc:
             return
 
-        mention = UI.mention(user.id,
-            OWNER_NAME if self._is_owner(user.id) else UI.display_name(user))
+        mention = OWNER_LINK if self._is_owner(user.id) else UI.mention(user.id, UI.display_name(user))
 
         fname  = doc.file_name or ""
         is_txt = (
