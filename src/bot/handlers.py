@@ -24,7 +24,7 @@ from telegram.error import TelegramError, Forbidden, BadRequest
 
 logger   = logging.getLogger(__name__)
 OWNER_ID   = int(os.environ.get("OWNER_ID", "8403136097"))
-OWNER_NAME = "@CV_OWNER"
+OWNER_NAME = "🌷 𝐂𝐋𝐀𝐓 𝐎𝐖𝐍𝐄𝐑 🌷"
 COMMUNITY  = "@CLAT_Vision"
 
 
