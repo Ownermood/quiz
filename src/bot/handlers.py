@@ -1227,7 +1227,7 @@ class TelegramQuizBot:
             tu_name  = tu.get("name") or tu.get("username") or "—"
             tu_uid   = tu.get("user_id")
             tu_pts   = tu.get("total_marks", 0)
-            tu_ref   = UI.mention(tu_uid, tu_name[:18]) if tu_uid else tu_name
+            tu_ref   = UI.mention(tu_uid, tu_name[:18]) if tu_uid else "—"
             text = (
                 f"📊  <b>𝐁𝐎𝐓  𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>\n"
                 f"{'━'*38}\n\n"
@@ -1306,7 +1306,7 @@ class TelegramQuizBot:
             for i, u in enumerate(top5):
                 uid   = u.get("user_id")
                 nm    = (u.get("name") or u.get("username") or f"User{str(uid)[-4:]}")[:16]
-                men   = UI.mention(uid, nm) if uid else nm
+                men   = UI.mention(uid, nm) if uid else "—"
                 pts   = u.get("total_marks", 0)
                 cor   = u.get("correct_answers", 0)
                 qz    = u.get("quizzes_completed", 0)
@@ -1639,46 +1639,6 @@ class TelegramQuizBot:
                     f"⭐ <b>{pts}</b> Points",
                     "",
                 ]
-
-        # ── Your Position footer ──────────────────────────────
-        if req_user and mode != "group" and self.db:
-            try:
-                days   = self._LB_PERIOD.get(mode, 36500)
-                info   = self.db.get_user_rank_in_period(req_user.id, days)
-                streak = self.quiz_manager.get_user_stats(
-                    req_user.id).get("current_streak", 0)
-                if info.get("total", 0) > 0:
-                    u_rank = info["rank"]
-                    u_pts  = info["correct"]
-                    above  = info.get("above_correct")
-
-                    lines += [SEP, "", "📍  <b>𝐘𝐎𝐔𝐑 𝐏𝐎𝐒𝐈𝐓𝐈𝐎𝐍</b>", ""]
-                    lines.append(f"🏅 Rank <b>#{u_rank}</b>")
-                    lines.append(f"")
-                    lines.append(f"⭐ <b>{u_pts}</b> Points")
-                    lines.append(f"")
-                    lines.append(f"🔥 <b>{streak}</b> Streak")
-
-                    if above is not None and u_rank > 1:
-                        gap = max(0, above - u_pts)
-                        lines += [
-                            f"",
-                            f"📈 Need <b>{gap}</b> More Point{'s' if gap != 1 else ''}"
-                            f" For Rank <b>#{u_rank - 1}</b>",
-                        ]
-                    lines.append("")
-            except Exception as e:
-                logger.error(f"leaderboard my_section: {e}")
-        elif req_user and mode == "group":
-            for idx, e in enumerate(lb):
-                if e.get("user_id") == req_user.id:
-                    u_pts = e.get("correct_answers", 0)
-                    lines += [SEP, "", "📍  <b>𝐘𝐎𝐔𝐑 𝐏𝐎𝐒𝐈𝐓𝐈𝐎𝐍</b>", ""]
-                    lines.append(f"🏅 Rank <b>#{idx + 1}</b>")
-                    lines.append(f"")
-                    lines.append(f"⭐ <b>{u_pts}</b> Points")
-                    lines.append("")
-                    break
 
         # ── Badge legend + page indicator ─────────────────────
         lines += [
