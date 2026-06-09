@@ -766,7 +766,7 @@ class TelegramQuizBot:
             f"│  📛  Name        ›  CLAT Vision Quiz Bot\n"
             f"│  📚  Questions   ›  <b>{q_count}</b>\n"
             f"│  🗄  Database    ›  MongoDB Atlas ✅\n"
-            f"│  👑  Owner       ›  {UI.mention(OWNER_ID, OWNER_NAME)}\n"
+            f"│  👑  Owner       ›  <b>{OWNER_NAME}</b>\n"
             f"╰──────────────────────────────────────╯\n\n"
             f"💬  <b>𝐓𝐇𝐈𝐒  𝐂𝐇𝐀𝐓</b>\n"
             f"╭──────────────────────────────────────╮\n"
