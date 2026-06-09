@@ -506,45 +506,63 @@ class TelegramQuizBot:
     # ─── /help ───────────────────────────────────────────────
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        is_pm = update.effective_chat.type == "private"
+        is_owner = self._is_owner(update.effective_user.id) if update.effective_user else False
 
         text = (
-            f"📖 <b>COMMAND CENTER</b>\n"
-            f"{UI.LINE}\n\n"
+            f"╔══════════════════════════════════════════╗\n"
+            f"║   🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Command Guide   ║\n"
+            f"╚══════════════════════════════════════════╝\n\n"
 
-            f"<b>QUIZ</b>\n"
-            f"  ◈ /quiz — Random question\n"
-            f"  ◈ /quiz [topic] — By category\n"
-            f"     <code>legal · english · gk · polity</code>\n"
-            f"     <code>reasoning · history · current</code>\n"
-            f"  ◈ /q — Quick shortcut\n\n"
+            f"🎯  <b>𝐐𝐔𝐈𝐙  𝐂𝐄𝐍𝐓𝐄𝐑</b>\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /quiz              ›  Start a quiz\n"
+            f"│  /q                  ›  Quick shortcut\n"
+            f"│  /categories      ›  Browse all topics\n"
+            f"╰──────────────────────────────────────────╯\n\n"
 
-            f"<b>YOUR PROFILE</b>\n"
-            f"  ◈ /score — Scorecard + rank\n"
-            f"  ◈ /stats — Full performance analytics\n"
-            f"  ◈ /leaderboard — Global rankings\n\n"
+            f"📊  <b>𝐏𝐑𝐎𝐆𝐑𝐄𝐒𝐒  𝐂𝐄𝐍𝐓𝐄𝐑</b>\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /score           ›  Scorecard &amp; rank\n"
+            f"│  /stats            ›  Full analytics\n"
+            f"│  /achievements  ›  Badges &amp; milestones\n"
+            f"╰──────────────────────────────────────────╯\n\n"
 
-            f"<b>BOT ANALYTICS</b>\n"
-            f"  ◈ /botstats — Daily · weekly · all-time\n\n"
+            f"🏆  <b>𝐂𝐎𝐌𝐏𝐄𝐓𝐈𝐓𝐈𝐎𝐍</b>\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /leaderboard  ›  Global rankings\n"
+            f"│  /lb                  ›  Quick shortcut\n"
+            f"╰──────────────────────────────────────────╯\n\n"
 
-            f"<b>SYSTEM</b>\n"
-            f"  ◈ /ping — Connection & latency\n"
-            f"  ◈ /info — Bot & chat information\n\n"
+            f"🔧  <b>𝐒𝐘𝐒𝐓𝐄𝐌</b>\n"
+            f"╭──────────────────────────────────────────╮\n"
+            f"│  /ping    ›  Latency check\n"
+            f"│  /info     ›  Bot information\n"
+            f"│  /start   ›  Dashboard\n"
+            f"╰──────────────────────────────────────────╯\n"
+        )
 
-            f"{UI.THIN}\n"
-            f"<b>ADMIN</b>  <i>· Owner &amp; Developers only</i>\n"
-            f"  ◈ /addquiz — Add a question\n"
-            f"  ◈ /delquiz — Delete question\n"
-            f"  ◈ /editquiz — Manage questions\n"
-            f"  ◈ /importquiz — Bulk import (.txt)\n"
-            f"  ◈ /broadcast — Message all users\n"
-            f"  ◈ /reload — Sync from database\n"
-            f"  ◈ /restart — Restart bot\n"
-            f"  ◈ /dev — Developer control panel\n"
-            f"  ◈ /devstats — Analytics dashboard\n\n"
+        if is_owner:
+            text += (
+                f"\n👑  <b>𝐀𝐃𝐌𝐈𝐍  𝐂𝐄𝐍𝐓𝐄𝐑</b>  · Owner &amp; Devs only\n"
+                f"╭──────────────────────────────────────────╮\n"
+                f"│  /dev           ›  Admin panel\n"
+                f"│  /addquiz      ›  Add question\n"
+                f"│  /editquiz     ›  Edit question\n"
+                f"│  /delquiz      ›  Delete question\n"
+                f"│  /importquiz  ›  Bulk import (.txt)\n"
+                f"│  /broadcast      ›  Message everyone\n"
+                f"│  /bc                 ›  Broadcast shortcut\n"
+                f"│  /delbroadcast  ›  Delete last broadcast\n"
+                f"│  /botstats    ›  Platform analytics\n"
+                f"│  /devstats    ›  Developer metrics\n"
+                f"│  /reload        ›  Sync from database\n"
+                f"│  /restart       ›  Restart bot\n"
+                f"╰──────────────────────────────────────────╯\n"
+            )
 
-            f"{UI.LINE}\n"
-            f"  ⚡ {COMMUNITY}  ·  CLAT 2027"
+        text += (
+            f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚡  {COMMUNITY}  ·  CLAT 2027"
         )
 
         kb = InlineKeyboardMarkup([[
