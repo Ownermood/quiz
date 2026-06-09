@@ -328,9 +328,10 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("help",        self.cmd_help))
         app.add_handler(CommandHandler("quiz",        self.cmd_quiz))
         app.add_handler(CommandHandler("q",           self.cmd_quiz))
-        app.add_handler(CommandHandler("score",       self.cmd_score))
-        app.add_handler(CommandHandler("stats",       self.cmd_stats))
-        app.add_handler(CommandHandler("botstats",    self.cmd_botstats))
+        app.add_handler(CommandHandler("score",        self.cmd_score))
+        app.add_handler(CommandHandler("stats",        self.cmd_stats))
+        app.add_handler(CommandHandler("achievements", self.cmd_achievements))
+        app.add_handler(CommandHandler("botstats",     self.cmd_botstats))
         app.add_handler(CommandHandler("leaderboard", self.cmd_leaderboard))
         app.add_handler(CommandHandler("lb",          self.cmd_leaderboard))
         app.add_handler(CommandHandler("categories",  self.cmd_categories))
@@ -378,15 +379,16 @@ class TelegramQuizBot:
     async def _set_commands(self):
         try:
             await self.application.bot.set_my_commands([
-                BotCommand("quiz",        "🎯 Get a quiz question"),
-                BotCommand("score",       "🏆 Your personal score"),
-                BotCommand("stats",       "📈 Your detailed stats"),
-                BotCommand("botstats",    "📊 Bot-wide statistics"),
-                BotCommand("leaderboard", "🔱 Global leaderboard"),
-                BotCommand("categories",  "📚 Browse quiz categories"),
-                BotCommand("help",        "📖 Command center"),
-                BotCommand("start",       "🚀 Welcome screen"),
-                BotCommand("ping",        "🏓 Connection test"),
+                BotCommand("quiz",         "🎯 Get a quiz question"),
+                BotCommand("score",        "🏆 Your personal score"),
+                BotCommand("stats",        "📈 Your detailed stats"),
+                BotCommand("achievements", "🏅 Badges & milestones"),
+                BotCommand("botstats",     "📊 Bot-wide statistics"),
+                BotCommand("leaderboard",  "🔱 Global leaderboard"),
+                BotCommand("categories",   "📚 Browse quiz categories"),
+                BotCommand("help",         "📖 Command center"),
+                BotCommand("start",        "🚀 Welcome screen"),
+                BotCommand("ping",         "🏓 Connection test"),
             ])
         except Exception as e:
             logger.warning(f"set_my_commands: {e}")
@@ -811,55 +813,94 @@ class TelegramQuizBot:
             except Exception as e:
                 logger.error(f"DB poll_answer: {e}")
 
+            # Record quiz result for Progress Center
+            try:
+                score_val   = 1 if is_correct else 0
+                wrong_val   = 0 if is_correct else 1
+                self.db.record_quiz_result(user_id, {
+                    "correct":  1 if is_correct else 0,
+                    "wrong":    0 if is_correct else 1,
+                    "skipped":  0,
+                    "total":    1,
+                    "score":    score_val,
+                    "category": data.get("category", "General"),
+                })
+            except Exception as e:
+                logger.error(f"record_quiz_result: {e}")
+
     # ─── /score ──────────────────────────────────────────────
 
     async def cmd_score(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        import math as _math
         user    = update.effective_user
         mention = UI.mention(user.id, UI.display_name(user))
-        score   = self.quiz_manager.get_score(user.id)
-        stats   = self.quiz_manager.get_user_stats(user.id)
 
-        total   = stats.get("total_quizzes", 0)
-        rate    = stats.get("success_rate", 0)
-        streak  = stats.get("current_streak", 0)
-        best    = stats.get("longest_streak", 0)
-        today   = stats.get("today_quizzes", 0)
-        wrong   = total - score
+        # Load from DB if available, fallback to quiz_manager
+        db_doc = {}
+        if self.db:
+            try:
+                db_doc = self.db.get_user(user.id) or {}
+            except Exception as e:
+                logger.error(f"cmd_score get_user: {e}")
 
-        rank_txt, grade = UI.rank(score)
-        level_txt       = UI.level(score)
-        acc_bar         = UI.bar(rate)
-        rank_pos        = self._get_user_rank_position(user.id)
-        pos_text        = f"#{rank_pos}" if rank_pos else "—"
+        correct        = db_doc.get("correct_answers",  0)
+        wrong          = db_doc.get("wrong_answers",    0)
+        total_q        = db_doc.get("total_questions",  0)
+        total_marks    = db_doc.get("total_marks",      0)
+        best_score     = db_doc.get("best_score",       0)
+        xp             = db_doc.get("xp",               0)
+        level          = db_doc.get("level",            1)
+        streak         = db_doc.get("current_streak",   0)
+
+        accuracy = round(correct / max(total_q, 1) * 100, 1) if total_q else 0
+        avg_score = round(total_marks / max(db_doc.get("quizzes_completed", 0) or 1, 1), 1)
+
+        # XP bar within current level
+        xp_for_level    = level * level * 100
+        xp_for_next     = (level + 1) * (level + 1) * 100
+        xp_in_level     = xp - xp_for_level
+        xp_needed       = max(xp_for_next - xp_for_level, 1)
+        xp_pct          = min(100, int(xp_in_level / xp_needed * 100))
+        xp_bar          = UI.mini_bar(xp_pct)
+
+        # Global rank
+        global_rank  = 0
+        total_users  = 0
+        if self.db:
+            try:
+                rank_info   = self.db.get_user_rank(user.id)
+                global_rank = rank_info.get("global_rank", 0)
+                total_users = rank_info.get("total_users", 0)
+            except Exception as e:
+                logger.error(f"cmd_score get_user_rank: {e}")
+
+        rank_str = f"#{global_rank}  of  {total_users}" if global_rank else "—"
 
         text = (
-            f"🏆 <b>SCORECARD</b>\n"
+            f"🏆  <b>𝐒𝐂𝐎𝐑𝐄𝐂𝐀𝐑𝐃</b>\n"
             f"{UI.LINE}\n\n"
-            f"  {mention}\n\n"
-            f"<b>RANK &amp; LEVEL</b>\n"
-            f"{UI.THIN}\n"
-            f"  Tier     ›  {rank_txt}\n"
-            f"  Grade    ›  <b>{grade}</b>\n"
-            f"  Level    ›  <b>{level_txt}</b>\n"
-            f"  Position ›  <b>{pos_text} Global</b>\n\n"
-            f"<b>PERFORMANCE</b>\n"
-            f"{UI.THIN}\n"
-            f"  Correct  ›  <b>{score}</b>\n"
-            f"  Wrong    ›  <b>{wrong}</b>\n"
-            f"  Total    ›  <b>{total}</b>\n"
-            f"  Accuracy ›  <b>{rate}%</b>  [{acc_bar}]\n\n"
-            f"<b>STREAK</b>\n"
-            f"{UI.THIN}\n"
-            f"  Current  ›  {UI.streak_display(streak)}\n"
-            f"  Best     ›  <b>{best} days</b>\n"
-            f"  Today    ›  <b>{today}</b> questions\n\n"
-            f"{UI.LINE}\n"
-            f"  <i>Consistency wins CLAT. Keep going! 💪</i>"
+            f"👤  {mention}\n\n"
+            f"{UI.LINE}\n\n"
+            f"🥇  Rank        ›  {rank_str}\n"
+            f"📈  Accuracy    ›  {accuracy}%\n"
+            f"🎯  Avg Score   ›  {avg_score}\n\n"
+            f"🔥  Streak      ›  {streak} days\n"
+            f"⚡  XP          ›  {xp}\n"
+            f"🏅  Level       ›  {level}\n\n"
+            f"{xp_bar}  {xp_pct}% to next level\n\n"
+            f"{UI.LINE}\n\n"
+            f"📚  Questions   ›  {total_q}\n"
+            f"✅  Correct     ›  {correct}\n"
+            f"❌  Wrong       ›  {wrong}\n\n"
+            f"🏆  Best Score  ›  {best_score}\n"
+            f"📝  Total Marks ›  {total_marks}\n\n"
+            f"{UI.LINE}"
         )
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎓 Play Quiz",   callback_data="play_quiz"),
-             InlineKeyboardButton("🎓 Full Stats",  callback_data="my_stats")],
-            [InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard")],
+            [InlineKeyboardButton("🎓 Play Quiz",      callback_data="play_quiz"),
+             InlineKeyboardButton("🎓 Full Stats",     callback_data="my_stats")],
+            [InlineKeyboardButton("🎓 Achievements",   callback_data="achievements"),
+             InlineKeyboardButton("🎓 Leaderboard",    callback_data="leaderboard")],
         ])
         await self._reply(update, text, reply_markup=kb)
 
@@ -872,64 +913,158 @@ class TelegramQuizBot:
         msg = await self._reply(update, "📊 <i>Crunching your analytics...</i>")
         await asyncio.sleep(0.4)
 
-        score  = self.quiz_manager.get_score(user.id)
-        stats  = self.quiz_manager.get_user_stats(user.id)
+        db_doc = {}
+        if self.db:
+            try:
+                db_doc = self.db.get_user(user.id) or {}
+            except Exception as e:
+                logger.error(f"cmd_stats get_user: {e}")
 
-        total   = stats.get("total_quizzes", 0)
-        rate    = stats.get("success_rate", 0)
-        streak  = stats.get("current_streak", 0)
-        best    = stats.get("longest_streak", 0)
-        today   = stats.get("today_quizzes", 0)
-        week    = stats.get("week_quizzes", 0)
-        month   = stats.get("month_quizzes", 0)
-        wrong   = total - score
+        quizzes_completed = db_doc.get("quizzes_completed", 0)
+        correct           = db_doc.get("correct_answers",   0)
+        total_q           = db_doc.get("total_questions",   0)
+        total_marks       = db_doc.get("total_marks",       0)
+        streak            = db_doc.get("current_streak",    0)
+        subject_stats     = db_doc.get("subject_stats",     {})
+        if not isinstance(subject_stats, dict):
+            subject_stats = {}
 
-        rank_txt, grade = UI.rank(score)
-        level_txt       = UI.level(score)
-        acc_bar         = UI.bar(rate)
-        xp_bar          = UI.xp_bar(score)
-        rank_pos        = self._get_user_rank_position(user.id)
-        pos_text        = f"#{rank_pos}" if rank_pos else "Unranked"
-
-        # Weekly activity bar (vs target of 50/week)
-        w_pct  = min(100, week / 50 * 100)
-        w_bar  = UI.bar(w_pct)
+        accuracy  = round(correct / max(total_q, 1) * 100, 1) if total_q else 0
+        avg_score = round(total_marks / max(quizzes_completed or 1, 1), 1)
 
         text = (
-            f"📈 <b>PERFORMANCE ANALYTICS</b>\n"
+            f"📊  <b>𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>\n"
             f"{UI.LINE}\n\n"
-            f"  {mention}\n\n"
-            f"<b>RANK &amp; PROGRESSION</b>\n"
-            f"{UI.THIN}\n"
-            f"  Tier     ›  {rank_txt}  <i>({grade})</i>\n"
-            f"  Level    ›  <b>{level_txt}</b>\n"
-            f"  Progress ›  [{xp_bar}]\n"
-            f"  Position ›  <b>{pos_text} Global</b>\n\n"
-            f"<b>ACCURACY</b>\n"
-            f"{UI.THIN}\n"
-            f"  Rate    ›  <b>{rate}%</b>  [{acc_bar}]\n"
-            f"  Correct ›  <b>{score}</b>   Wrong ›  <b>{wrong}</b>\n"
-            f"  Total   ›  <b>{total}</b>\n\n"
-            f"<b>STREAKS</b>\n"
-            f"{UI.THIN}\n"
-            f"  Current ›  {UI.streak_display(streak)}\n"
-            f"  Best    ›  <b>{best} days</b>\n\n"
-            f"<b>ACTIVITY</b>\n"
-            f"{UI.THIN}\n"
-            f"  Today   ›  <b>{today}</b> questions\n"
-            f"  Week    ›  <b>{week}</b>  [{w_bar}]\n"
-            f"  Month   ›  <b>{month}</b>\n\n"
-            f"{UI.LINE}\n"
-            f"  <i>Aim for 20+ questions daily!</i>"
+            f"👤  {mention}\n\n"
+            f"<b>𝐎𝐕𝐄𝐑𝐀𝐋𝐋  𝐏𝐄𝐑𝐅𝐎𝐑𝐌𝐀𝐍𝐂𝐄</b>\n"
+            f"╭──────────────────────────────╮\n"
+            f"│  Quizzes      ›  {quizzes_completed}\n"
+            f"│  Accuracy     ›  {accuracy}%\n"
+            f"│  Avg Score    ›  {avg_score}\n"
+            f"│  Total Marks  ›  {total_marks}\n"
+            f"╰──────────────────────────────╯\n\n"
         )
+
+        # Subject breakdown
+        if subject_stats:
+            text += (
+                f"<b>𝐒𝐔𝐁𝐉𝐄𝐂𝐓  𝐁𝐑𝐄𝐀𝐊𝐃𝐎𝐖𝐍</b>\n"
+                f"╭──────────────────────────────╮\n"
+            )
+            for subj, sdata in subject_stats.items():
+                if not isinstance(sdata, dict):
+                    continue
+                s_attempted = sdata.get("attempted", 0)
+                s_correct   = sdata.get("correct",   0)
+                s_acc       = round(s_correct / max(s_attempted, 1) * 100, 1) if s_attempted else 0
+                text += f"│  {subj[:18]}   ›  {s_acc}%  ({s_correct}/{s_attempted})\n"
+            text += f"╰──────────────────────────────╯\n\n"
+
+        # Insights
+        insights = []
+        if quizzes_completed == 0:
+            insights.append("Start your first quiz with /quiz!")
+        else:
+            # Weakest subject
+            weak_subject = None
+            weak_acc     = 100.0
+            best_subject = None
+            best_acc     = 0.0
+            for subj, sdata in subject_stats.items():
+                if not isinstance(sdata, dict):
+                    continue
+                s_attempted = sdata.get("attempted", 0)
+                s_correct   = sdata.get("correct",   0)
+                if s_attempted < 3:
+                    continue
+                s_acc = s_correct / max(s_attempted, 1) * 100
+                if s_acc < weak_acc:
+                    weak_acc     = s_acc
+                    weak_subject = subj
+                if s_acc > best_acc:
+                    best_acc     = s_acc
+                    best_subject = subj
+
+            if weak_subject and weak_acc < 60:
+                insights.append(f"Your {weak_subject} needs improvement.")
+            if best_subject:
+                insights.append(f"Your strongest subject is {best_subject} at {round(best_acc, 1)}%.")
+            if streak > 5:
+                insights.append(f"🔥 You're on a {streak}-day streak! Keep going!")
+
+        if insights:
+            text += "<b>𝐈𝐍𝐒𝐈𝐆𝐇𝐓𝐒</b>\n"
+            for ins in insights:
+                text += f"• {ins}\n"
+
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎓 Play Quiz",   callback_data="play_quiz"),
-            InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard"),
+            InlineKeyboardButton("🎓 Play Quiz",     callback_data="play_quiz"),
+            InlineKeyboardButton("🎓 Leaderboard",   callback_data="leaderboard"),
         ]])
         if msg:
             await self._edit(msg, text, kb)
         else:
             await self._reply(update, text, reply_markup=kb)
+
+    # ─── /achievements ───────────────────────────────────────
+
+    async def cmd_achievements(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user    = update.effective_user
+        mention = UI.mention(user.id, UI.display_name(user))
+
+        earned_list = []
+        if self.db:
+            try:
+                earned_list = self.db.get_user_achievements(user.id) or []
+            except Exception as e:
+                logger.error(f"cmd_achievements get_user_achievements: {e}")
+
+        # Normalise stored achievements (could be dicts or strings)
+        earned_keys = set()
+        earned_display = []
+        for a in earned_list:
+            if isinstance(a, dict):
+                earned_keys.add(a.get("key", ""))
+                label     = a.get("label", a.get("key", "?"))
+                earned_at = a.get("earned_at", "")
+                date_str  = earned_at[:10] if earned_at else "—"
+                earned_display.append(f"  {label}  <i>({date_str})</i>")
+            else:
+                earned_keys.add(str(a))
+                earned_display.append(f"  {a}")
+
+        # Locked achievements
+        all_keys = list(self.db.ACHIEVEMENTS.keys()) if self.db else []
+        locked_display = []
+        for key in all_keys:
+            if key not in earned_keys:
+                ach = self.db.ACHIEVEMENTS[key]
+                locked_display.append(f"  🔒  ???  <i>({ach['label']})</i>")
+
+        count = len(earned_keys)
+        total = len(all_keys)
+
+        earned_text = "\n".join(earned_display) if earned_display else "  None yet — play /quiz to earn some!"
+        locked_text = "\n".join(locked_display[:10]) if locked_display else "  All achievements unlocked! 🎉"
+        if len(locked_display) > 10:
+            locked_text += f"\n  <i>… and {len(locked_display) - 10} more</i>"
+
+        text = (
+            f"🏅  <b>𝐀𝐂𝐇𝐈𝐄𝐕𝐄𝐌𝐄𝐍𝐓𝐒</b>\n"
+            f"{UI.LINE}\n\n"
+            f"👤  {mention}\n\n"
+            f"🔓  <b>𝐄𝐀𝐑𝐍𝐄𝐃</b>  ({count}/{total})\n"
+            f"{earned_text}\n\n"
+            f"🔒  <b>𝐋𝐎𝐂𝐊𝐄𝐃</b>\n"
+            f"{locked_text}\n\n"
+            f"{UI.LINE}\n"
+            f"Keep playing to unlock more! 🎓"
+        )
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🎓 Play Quiz",  callback_data="play_quiz"),
+            InlineKeyboardButton("🎓 My Score",   callback_data="my_stats"),
+        ]])
+        await self._reply(update, text, reply_markup=kb)
 
     # ─── /botstats ───────────────────────────────────────────
 
@@ -1091,12 +1226,16 @@ class TelegramQuizBot:
             title   = f"🏆 <b>GROUP LEADERBOARD</b>"
             footer  = f"\n  Attempts: <b>{total_q}</b>  ·  Group accuracy: <b>{acc_g}%</b>"
         elif mode == "weekly" and self.db:
-            lb      = self.db.get_leaderboard_by_period(days=7)
+            lb      = self.db.get_leaderboard_page(mode="weekly", limit=10)
             title   = "🏆 <b>WEEKLY LEADERBOARD</b>  <i>(last 7 days)</i>"
             footer  = ""
         elif mode == "monthly" and self.db:
-            lb      = self.db.get_leaderboard_by_period(days=30)
+            lb      = self.db.get_leaderboard_page(mode="monthly", limit=10)
             title   = "🏆 <b>MONTHLY LEADERBOARD</b>  <i>(last 30 days)</i>"
+            footer  = ""
+        elif self.db:
+            lb      = self.db.get_leaderboard_page(mode="global", limit=10)
+            title   = "🏆 <b>GLOBAL LEADERBOARD</b>  <i>(all time)</i>"
             footer  = ""
         else:
             lb      = self.quiz_manager.get_leaderboard()
@@ -1116,13 +1255,15 @@ class TelegramQuizBot:
                 await self._edit(wait_msg, text)
             return
 
-        top_score = lb[0].get("correct_answers", lb[0].get("score", 1)) or 1
+        top_score = lb[0].get("xp", lb[0].get("correct_answers", lb[0].get("score", 1))) or 1
         lines = [f"{title}\n{UI.LINE}\n"]
 
         for i, entry in enumerate(lb[:10]):
             uid   = entry.get("user_id")
+            xp    = entry.get("xp", 0)
             score = entry.get("correct_answers", entry.get("score", 0))
             acc   = entry.get("accuracy", 0)
+            level = entry.get("level", 1)
             pos   = i + 1
 
             # Resolve display name
@@ -1139,18 +1280,19 @@ class TelegramQuizBot:
                     pass
 
             mention  = UI.mention(uid, display)
-            fill     = max(0, min(10, int(score / top_score * 10)))
+            top_val  = top_score if top_score > 0 else 1
+            fill     = max(0, min(10, int(xp / top_val * 10)))
             bar      = "█" * fill + "░" * (10 - fill)
 
             if pos <= 3:
                 medal = UI.MEDALS[i]
                 lines.append(
-                    f"{medal}  {mention}\n"
-                    f"    [{bar}]  <b>{score} pts</b>  <i>{acc}% acc</i>"
+                    f"{medal}  {mention}  <i>Lv.{level}</i>\n"
+                    f"    [{bar}]  <b>{xp} XP</b>  <i>{score} correct</i>"
                 )
             else:
                 lines.append(
-                    f"  <b>{pos:2d}.</b>  {mention}  —  <b>{score}</b>  <i>{acc}%</i>"
+                    f"  <b>{pos:2d}.</b>  {mention}  —  <b>{xp} XP</b>  <i>Lv.{level}</i>"
                 )
 
         if footer:
@@ -1899,10 +2041,11 @@ class TelegramQuizBot:
         await query.answer()
         data  = query.data
 
-        if   data == "play_quiz":   await self.cmd_quiz(update, context)
-        elif data == "my_stats":    await self.cmd_stats(update, context)
-        elif data == "help":        await self.cmd_help(update, context)
-        elif data == "back_start":  await self.cmd_start(update, context)
+        if   data == "play_quiz":    await self.cmd_quiz(update, context)
+        elif data == "my_stats":     await self.cmd_stats(update, context)
+        elif data == "achievements": await self.cmd_achievements(update, context)
+        elif data == "help":         await self.cmd_help(update, context)
+        elif data == "back_start":   await self.cmd_start(update, context)
 
         elif data == "leaderboard":
             await self._show_leaderboard(update, context, mode="global")

@@ -5,6 +5,7 @@ Owner ID: 8403136097
 
 import logging
 import os
+import math
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
@@ -48,8 +49,11 @@ class DatabaseManager:
         try:
             self.questions_col.create_index("id", unique=True)
             self.questions_col.create_index("category")
-            self.users_col.create_index("user_id", unique=True)
+            self.users_col.create_index([("user_id", ASCENDING)], unique=True)
+            self.users_col.create_index([("xp", DESCENDING)])
+            self.users_col.create_index([("correct_answers", DESCENDING)])
             self.users_col.create_index([("last_seen", DESCENDING)])
+            self.users_col.create_index([("last_activity", DESCENDING)])
             self.users_col.create_index([("total_answers", DESCENDING)])
             self.groups_col.create_index("chat_id", unique=True)
             self.groups_col.create_index([("last_active", DESCENDING)])
@@ -161,11 +165,243 @@ class DatabaseManager:
         try:
             self.users_col.update_one(
                 {"user_id": user_id},
-                {"$set": data, "$setOnInsert": {"joined_at": datetime.utcnow().isoformat()}},
+                {
+                    "$set": data,
+                    "$setOnInsert": {
+                        "joined_at":          datetime.utcnow().isoformat(),
+                        "quizzes_attempted":  0,
+                        "quizzes_completed":  0,
+                        "total_questions":    0,
+                        "correct_answers":    0,
+                        "wrong_answers":      0,
+                        "skipped_answers":    0,
+                        "total_marks":        0,
+                        "best_score":         0,
+                        "xp":                 0,
+                        "level":              1,
+                        "current_streak":     0,
+                        "highest_streak":     0,
+                        "last_activity":      "",
+                        "subject_stats":      {},
+                        "achievements":       [],
+                        "daily_activity":     [],
+                    }
+                },
                 upsert=True
             )
         except Exception as e:
             logger.error(f"upsert_user error: {e}")
+
+    # ── Progress Center — new methods ─────────────────────────────────────────
+
+    # Achievement definitions (class-level constant)
+    ACHIEVEMENTS = {
+        "first_quiz":  {"label": "🎯 First Quiz",    "condition": lambda u: u.get("quizzes_completed", 0) >= 1},
+        "quiz_10":     {"label": "📚 10 Quizzes",    "condition": lambda u: u.get("quizzes_completed", 0) >= 10},
+        "quiz_50":     {"label": "🏅 50 Quizzes",    "condition": lambda u: u.get("quizzes_completed", 0) >= 50},
+        "quiz_100":    {"label": "🏆 100 Quizzes",   "condition": lambda u: u.get("quizzes_completed", 0) >= 100},
+        "quiz_500":    {"label": "👑 500 Quizzes",   "condition": lambda u: u.get("quizzes_completed", 0) >= 500},
+        "acc_70":      {"label": "✅ 70% Accuracy",  "condition": lambda u: u.get("total_questions", 0) >= 10 and (u.get("correct_answers", 0) / max(u.get("total_questions", 1), 1)) * 100 >= 70},
+        "acc_80":      {"label": "⭐ 80% Accuracy",  "condition": lambda u: u.get("total_questions", 0) >= 10 and (u.get("correct_answers", 0) / max(u.get("total_questions", 1), 1)) * 100 >= 80},
+        "acc_90":      {"label": "💫 90% Accuracy",  "condition": lambda u: u.get("total_questions", 0) >= 10 and (u.get("correct_answers", 0) / max(u.get("total_questions", 1), 1)) * 100 >= 90},
+        "acc_95":      {"label": "🌟 95% Accuracy",  "condition": lambda u: u.get("total_questions", 0) >= 10 and (u.get("correct_answers", 0) / max(u.get("total_questions", 1), 1)) * 100 >= 95},
+        "streak_3":    {"label": "🔥 3-Day Streak",  "condition": lambda u: u.get("highest_streak", 0) >= 3},
+        "streak_7":    {"label": "🔥 7-Day Streak",  "condition": lambda u: u.get("highest_streak", 0) >= 7},
+        "streak_15":   {"label": "🔥 15-Day Streak", "condition": lambda u: u.get("highest_streak", 0) >= 15},
+        "streak_30":   {"label": "🔥 30-Day Streak", "condition": lambda u: u.get("highest_streak", 0) >= 30},
+        "streak_100":  {"label": "🔥 100-Day Streak","condition": lambda u: u.get("highest_streak", 0) >= 100},
+        "q_100":       {"label": "📖 100 Questions", "condition": lambda u: u.get("total_questions", 0) >= 100},
+        "q_500":       {"label": "📖 500 Questions", "condition": lambda u: u.get("total_questions", 0) >= 500},
+        "q_1000":      {"label": "📖 1000 Questions","condition": lambda u: u.get("total_questions", 0) >= 1000},
+        "q_5000":      {"label": "📖 5000 Questions","condition": lambda u: u.get("total_questions", 0) >= 5000},
+        "lvl_5":       {"label": "⚡ Level 5",       "condition": lambda u: u.get("level", 1) >= 5},
+        "lvl_10":      {"label": "⚡ Level 10",      "condition": lambda u: u.get("level", 1) >= 10},
+        "lvl_25":      {"label": "⚡ Level 25",      "condition": lambda u: u.get("level", 1) >= 25},
+        "lvl_50":      {"label": "⚡ Level 50",      "condition": lambda u: u.get("level", 1) >= 50},
+    }
+
+    def record_quiz_result(self, user_id: int, result_data: Dict):
+        """Atomic update of all user stats after a quiz ends."""
+        try:
+            correct  = result_data.get("correct",  0)
+            wrong    = result_data.get("wrong",    0)
+            skipped  = result_data.get("skipped",  0)
+            total    = result_data.get("total",    0)
+            score    = result_data.get("score",    0)
+            category = result_data.get("category", "General")
+
+            # Fetch current user to calculate streak and XP-based level
+            user_doc = self.users_col.find_one({"user_id": user_id}) or {}
+
+            today_str    = datetime.utcnow().strftime("%Y-%m-%d")
+            last_activity= user_doc.get("last_activity", "")
+
+            # Streak calculation
+            current_streak  = user_doc.get("current_streak", 0)
+            highest_streak  = user_doc.get("highest_streak", 0)
+
+            if last_activity == today_str:
+                # Already played today, keep streak as-is
+                pass
+            elif last_activity:
+                try:
+                    last_date = datetime.strptime(last_activity, "%Y-%m-%d").date()
+                    today_date = datetime.utcnow().date()
+                    diff = (today_date - last_date).days
+                    if diff == 1:
+                        current_streak += 1
+                    else:
+                        current_streak = 1
+                except Exception:
+                    current_streak = 1
+            else:
+                current_streak = 1
+
+            if current_streak > highest_streak:
+                highest_streak = current_streak
+
+            # XP calculation
+            xp_gain = correct * 5
+            if total > 0:
+                xp_gain += 20  # quiz completed
+            if total > 0 and correct == total:
+                xp_gain += 50  # perfect quiz
+
+            new_xp = user_doc.get("xp", 0) + xp_gain
+            new_level = max(1, int(math.floor(math.sqrt(new_xp / 100))))
+
+            # Subject stats update
+            subject_stats = user_doc.get("subject_stats", {})
+            if not isinstance(subject_stats, dict):
+                subject_stats = {}
+            subj = subject_stats.get(category, {"attempted": 0, "correct": 0})
+            subj["attempted"] = subj.get("attempted", 0) + total
+            subj["correct"]   = subj.get("correct",   0) + correct
+            subject_stats[category] = subj
+
+            # Daily activity: update or append today
+            daily_activity = user_doc.get("daily_activity", [])
+            if not isinstance(daily_activity, list):
+                daily_activity = []
+            updated = False
+            for entry in daily_activity:
+                if isinstance(entry, dict) and entry.get("date") == today_str:
+                    entry["count"] = entry.get("count", 0) + total
+                    updated = True
+                    break
+            if not updated:
+                daily_activity.append({"date": today_str, "count": total})
+            # Keep last 30 days only
+            daily_activity = sorted(daily_activity, key=lambda x: x.get("date", ""))[-30:]
+
+            inc_ops = {
+                "quizzes_attempted": 1,
+                "total_questions":   total,
+                "correct_answers":   correct,
+                "wrong_answers":     wrong,
+                "skipped_answers":   skipped,
+                "total_marks":       score,
+            }
+            if total > 0:
+                inc_ops["quizzes_completed"] = 1
+
+            set_ops = {
+                "xp":              new_xp,
+                "level":           new_level,
+                "current_streak":  current_streak,
+                "highest_streak":  highest_streak,
+                "last_activity":   today_str,
+                "subject_stats":   subject_stats,
+                "daily_activity":  daily_activity,
+            }
+
+            self.users_col.update_one(
+                {"user_id": user_id},
+                {
+                    "$inc": inc_ops,
+                    "$max": {"best_score": score},
+                    "$set": set_ops,
+                },
+                upsert=True
+            )
+
+            # Fetch updated doc for achievement check
+            updated_doc = self.users_col.find_one({"user_id": user_id}) or {}
+            self._check_achievements(user_id, updated_doc)
+
+        except Exception as e:
+            logger.error(f"record_quiz_result error: {e}")
+
+    def _check_achievements(self, user_id: int, user_doc: Dict):
+        """Check and award unlocked achievements."""
+        try:
+            existing_keys = {
+                a["key"] if isinstance(a, dict) else a
+                for a in user_doc.get("achievements", [])
+            }
+            now_iso = datetime.utcnow().isoformat()
+            new_achievements = []
+            for key, ach in self.ACHIEVEMENTS.items():
+                if key not in existing_keys:
+                    try:
+                        if ach["condition"](user_doc):
+                            new_achievements.append({
+                                "key":       key,
+                                "label":     ach["label"],
+                                "earned_at": now_iso,
+                            })
+                    except Exception:
+                        pass
+            if new_achievements:
+                for ach in new_achievements:
+                    self.users_col.update_one(
+                        {"user_id": user_id},
+                        {"$addToSet": {"achievements": ach}}
+                    )
+        except Exception as e:
+            logger.error(f"_check_achievements error: {e}")
+
+    def get_user_rank(self, user_id: int) -> Dict:
+        """Returns global_rank and total_users for a user based on XP."""
+        try:
+            user_doc  = self.users_col.find_one({"user_id": user_id}, {"xp": 1}) or {}
+            user_xp   = user_doc.get("xp", 0)
+            rank      = self.users_col.count_documents({"xp": {"$gt": user_xp}}) + 1
+            total     = self.users_col.count_documents({})
+            return {"global_rank": rank, "total_users": total}
+        except Exception as e:
+            logger.error(f"get_user_rank error: {e}")
+            return {"global_rank": 0, "total_users": 0}
+
+    def get_leaderboard_page(self, mode: str = "global", limit: int = 10, offset: int = 0) -> List[Dict]:
+        """Return paginated leaderboard sorted by XP."""
+        try:
+            if mode in ("weekly", "monthly"):
+                days   = 7 if mode == "weekly" else 30
+                cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+                query  = {"last_activity": {"$gte": cutoff[:10]}}
+            else:
+                query = {}
+            return list(
+                self.users_col.find(query, {"_id": 0})
+                .sort([("xp", DESCENDING), ("correct_answers", DESCENDING)])
+                .skip(offset)
+                .limit(limit)
+            )
+        except Exception as e:
+            logger.error(f"get_leaderboard_page error: {e}")
+            return []
+
+    def get_user_achievements(self, user_id: int) -> List[Dict]:
+        """Returns the user's achievements list."""
+        try:
+            doc = self.users_col.find_one({"user_id": user_id}, {"achievements": 1})
+            if doc:
+                return doc.get("achievements", [])
+            return []
+        except Exception as e:
+            logger.error(f"get_user_achievements error: {e}")
+            return []
 
     def get_all_users_stats(self) -> List[Dict]:
         return list(self.users_col.find({}, {"_id": 0}))
