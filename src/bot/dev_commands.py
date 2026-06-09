@@ -321,12 +321,12 @@ class DeveloperCommands:
             # Use provided data from database instead of making API call
             if user_data:
                 # PM - use user's info from database
-                first_name = user_data.get('first_name') or "User"
+                first_name = (user_data.get('first_name') or user_data.get('name') or user_data.get('username') or "").strip() or "User"
                 username = f"@{user_data.get('username')}" if user_data.get('username') else "User"
                 chat_title = first_name
             elif group_data:
                 # Group - use group info from database
-                first_name = "Member"
+                first_name = "User"
                 username = "User"
                 chat_title = group_data.get('chat_title') or "Group"
             else:
@@ -334,11 +334,11 @@ class DeveloperCommands:
                 try:
                     chat = await context.bot.get_chat(chat_id)
                     if chat.type == 'private':
-                        first_name = chat.first_name or "User"
+                        first_name = (chat.first_name or "").strip() or "User"
                         username = f"@{chat.username}" if chat.username else "User"
                         chat_title = first_name
                     else:
-                        first_name = "Member"
+                        first_name = "User"
                         username = "User"
                         chat_title = chat.title or "Group"
                 except Exception as api_error:
@@ -745,21 +745,25 @@ class DeveloperCommands:
                     )
                     
                     display_name = first_name or username or f"User {user_id}"
+                    dev_mention = f'<a href="tg://user?id={user_id}">{display_name}</a>'
                     reply = await update.message.reply_text(
                         f"✅ Developer added successfully!\n\n"
-                        f"👤 {display_name}\n"
-                        f"🆔 ID: {user_id}"
+                        f"👤 {dev_mention}\n"
+                        f"🆔 ID: {user_id}",
+                        parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
                     logger.warning(f"Could not fetch user info for {user_id}: {e}")
                     # Add without user info
                     self.db.add_developer(user_id, added_by=update.effective_user.id)
+                    dev_mention = f'<a href="tg://user?id={user_id}">User {user_id}</a>'
                     reply = await update.message.reply_text(
                         f"✅ Developer added successfully!\n\n"
-                        f"User ID: {user_id}\n"
-                        f"⚠️ Could not fetch user details"
+                        f"👤 {dev_mention}\n"
+                        f"⚠️ Could not fetch user details",
+                        parse_mode=ParseMode.HTML
                     )
-                
+
                 logger.info(f"Developer {user_id} added by {update.effective_user.id}")
                 await self.auto_clean_message(update.message, reply)
                 return
@@ -794,19 +798,23 @@ class DeveloperCommands:
                         )
                         
                         display_name = first_name or username or f"User {new_dev_id}"
+                        dev_mention = f'<a href="tg://user?id={new_dev_id}">{display_name}</a>'
                         reply = await update.message.reply_text(
                             f"✅ Developer added successfully!\n\n"
-                            f"👤 {display_name}\n"
-                            f"🆔 ID: {new_dev_id}"
+                            f"👤 {dev_mention}\n"
+                            f"🆔 ID: {new_dev_id}",
+                            parse_mode=ParseMode.HTML
                         )
                     except Exception as e:
                         logger.warning(f"Could not fetch user info for {new_dev_id}: {e}")
                         # Add without user info
                         self.db.add_developer(new_dev_id, added_by=update.effective_user.id)
+                        dev_mention = f'<a href="tg://user?id={new_dev_id}">User {new_dev_id}</a>'
                         reply = await update.message.reply_text(
                             f"✅ Developer added successfully!\n\n"
-                            f"User ID: {new_dev_id}\n"
-                            f"⚠️ Could not fetch user details"
+                            f"👤 {dev_mention}\n"
+                            f"⚠️ Could not fetch user details",
+                            parse_mode=ParseMode.HTML
                         )
                     
                     logger.info(f"Developer {new_dev_id} added by {update.effective_user.id}")
@@ -856,37 +864,43 @@ class DeveloperCommands:
                 # Get OWNER info
                 try:
                     owner_user = await context.bot.get_chat(config.OWNER_ID)
-                    owner_name = owner_user.first_name
+                    owner_name = owner_user.first_name or "Owner"
                 except Exception as e:
                     logger.debug(f"Could not fetch owner info: {e}")
                     owner_name = "Owner"
-                
-                dev_text += f"• {owner_name} (ID: {config.OWNER_ID})\n"
-                
+
+                owner_mention = f'<a href="tg://user?id={config.OWNER_ID}">{owner_name}</a>'
+                dev_text += f"• {owner_mention} (ID: {config.OWNER_ID})\n"
+
                 # Get WIFU info if exists
                 if config.WIFU_ID:
                     try:
                         wifu_user = await context.bot.get_chat(config.WIFU_ID)
-                        wifu_name = wifu_user.first_name
+                        wifu_name = wifu_user.first_name or "Developer"
                         # Check if name has emoji, otherwise it might be the second developer
-                        dev_text += f"• {wifu_name} (ID: {config.WIFU_ID})\n"
+                        wifu_mention = f'<a href="tg://user?id={config.WIFU_ID}">{wifu_name}</a>'
+                        dev_text += f"• {wifu_mention} (ID: {config.WIFU_ID})\n"
                     except Exception as e:
                         logger.debug(f"Could not fetch WIFU info: {e}")
-                        dev_text += f"• Developer (ID: {config.WIFU_ID})\n"
-                
+                        wifu_mention = f'<a href="tg://user?id={config.WIFU_ID}">Developer</a>'
+                        dev_text += f"• {wifu_mention} (ID: {config.WIFU_ID})\n"
+
                 # Show other developers from database
                 if developers:
                     for dev in developers:
+                        dev_uid = dev['user_id']
                         try:
-                            dev_user = await context.bot.get_chat(dev['user_id'])
-                            dev_name = dev_user.first_name
-                            dev_text += f"• {dev_name} (ID: {dev['user_id']})\n"
+                            dev_user = await context.bot.get_chat(dev_uid)
+                            dev_name = dev_user.first_name or f"User{dev_uid}"
+                            d_mention = f'<a href="tg://user?id={dev_uid}">{dev_name}</a>'
+                            dev_text += f"• {d_mention} (ID: {dev_uid})\n"
                         except Exception as e:
                             logger.debug(f"Could not fetch developer info: {e}")
-                            username = dev.get('username') or dev.get('first_name') or f"User{dev['user_id']}"
-                            dev_text += f"• {username} (ID: {dev['user_id']})\n"
-                
-                reply = await update.message.reply_text(dev_text)
+                            d_name = dev.get('username') or dev.get('first_name') or f"User{dev_uid}"
+                            d_mention = f'<a href="tg://user?id={dev_uid}">{d_name}</a>'
+                            dev_text += f"• {d_mention} (ID: {dev_uid})\n"
+
+                reply = await update.message.reply_text(dev_text, parse_mode=ParseMode.HTML)
                 await self.auto_clean_message(update.message, reply)
             
             else:
@@ -1071,8 +1085,7 @@ class DeveloperCommands:
         try:
             if not await self.check_access(update):
                 await self.send_unauthorized_message(update)
-                return
-
+            
             if not update.effective_user or not update.effective_chat or not update.message:
                 return
             
@@ -1775,7 +1788,7 @@ class DeveloperCommands:
             
             # Get latest broadcast from database
             broadcast_data = self.db.get_latest_broadcast()
-            target_count = len(broadcast_data['message_data']) if broadcast_data and 'message_data' in broadcast_data else 0
+            target_count = len(broadcast_data.get('messages', [])) if broadcast_data else 0
             
             # Log command execution immediately
             self.db.log_activity(
@@ -1796,14 +1809,14 @@ class DeveloperCommands:
                 )
                 await self.auto_clean_message(update.message, reply)
                 return
-            
-            broadcast_messages = broadcast_data['message_data']
-            
+
+            broadcast_messages = broadcast_data.get('messages', [])
+
             if not broadcast_messages:
                 reply = await update.message.reply_text("❌ Broadcast data not found")
                 await self.auto_clean_message(update.message, reply)
                 return
-            
+
             # Store broadcast ID in context for confirmation (prevents race condition with multiple broadcasts)
             if context.user_data is not None:
                 context.user_data['pending_delete_broadcast_id'] = broadcast_data['broadcast_id']
@@ -1894,7 +1907,7 @@ class DeveloperCommands:
                 return
             
             broadcast_id = broadcast_data['broadcast_id']
-            broadcast_messages = broadcast_data['message_data']
+            broadcast_messages = broadcast_data.get('messages', [])
             
             if not broadcast_messages:
                 reply = await update.message.reply_text("❌ Broadcast data not found")
@@ -1964,9 +1977,9 @@ class DeveloperCommands:
                 await self.send_unauthorized_message(update)
                 return
             
-            if not update.effective_user or not update.effective_chat or not update.effective_message:
+            if not update.effective_user or not update.effective_chat or not update.message:
                 return
-
+            
             self.db.log_activity(
                 activity_type='command',
                 user_id=update.effective_user.id,
@@ -1976,8 +1989,8 @@ class DeveloperCommands:
                 command='/performance',
                 success=True
             )
-
-            loading_msg = await update.effective_message.reply_text("📊 Loading performance metrics...")
+            
+            loading_msg = await update.message.reply_text("📊 Loading performance metrics...")
             
             hours = 24
             if context.args and context.args[0].isdigit():
@@ -1988,72 +2001,71 @@ class DeveloperCommands:
             response_trends = self.db.get_response_time_trends(hours=hours)
             api_calls = self.db.get_api_call_counts(hours=hours)
             memory_history = self.db.get_memory_usage_history(hours=hours)
-            
-            import psutil
-            import os
-            process = psutil.Process(os.getpid())
-            current_memory_mb = process.memory_info().rss / 1024 / 1024
-            
+
+            # psutil is optional — graceful fallback if not installed
+            current_memory_mb = 0.0
+            try:
+                import psutil
+                current_memory_mb = psutil.Process().memory_info().rss / 1024 / 1024
+            except Exception:
+                pass
+
+            # perf_summary keys: {"response_time": {"avg": X, "count": Y}, "memory": {...}, ...}
+            rt_avg  = perf_summary.get("response_time", {}).get("avg", 0) or 0
+            mem_avg = perf_summary.get("memory", {}).get("avg", 0) or 0
+            total_api_calls = sum(api_calls.values()) if api_calls else 0
+
             perf_message = f"📊 *Performance Metrics Dashboard*\n"
             perf_message += f"🕒 *Period:* Last {hours} hours\n\n"
-            
+
             perf_message += f"⚡ *Response Times:*\n"
-            perf_message += f"• Average: {perf_summary['avg_response_time']:.2f}ms\n"
+            perf_message += f"• Average: {rt_avg:.2f}ms\n"
             if response_trends:
-                recent_avg = sum(t['avg_response_time'] for t in response_trends[:3]) / min(3, len(response_trends))
-                perf_message += f"• Recent (3h): {recent_avg:.2f}ms\n"
+                recent_vals = [t['value'] for t in response_trends[-3:] if 'value' in t]
+                if recent_vals:
+                    recent_avg = sum(recent_vals) / len(recent_vals)
+                    perf_message += f"• Recent (3h): {recent_avg:.2f}ms\n"
             perf_message += f"\n"
-            
+
             perf_message += f"📞 *API Calls:*\n"
-            perf_message += f"• Total: {perf_summary['total_api_calls']:,}\n"
+            perf_message += f"• Total: {total_api_calls:,}\n"
             if api_calls:
                 top_api = sorted(api_calls.items(), key=lambda x: x[1], reverse=True)[:3]
                 for api_name, count in top_api:
                     if api_name:
                         perf_message += f"• {api_name}: {count:,}\n"
             perf_message += f"\n"
-            
+
             perf_message += f"💾 *Memory Usage:*\n"
-            perf_message += f"• Current: {current_memory_mb:.2f} MB\n"
-            if perf_summary['avg_memory_mb'] > 0:
-                perf_message += f"• Average: {perf_summary['avg_memory_mb']:.2f} MB\n"
+            if current_memory_mb:
+                perf_message += f"• Current: {current_memory_mb:.2f} MB\n"
+            if mem_avg > 0:
+                perf_message += f"• Average: {mem_avg:.2f} MB\n"
             if memory_history:
-                max_mem = max(m['memory_usage_mb'] for m in memory_history)
-                min_mem = min(m['memory_usage_mb'] for m in memory_history)
-                perf_message += f"• Peak: {max_mem:.2f} MB\n"
-                perf_message += f"• Min: {min_mem:.2f} MB\n"
+                mem_vals = [m['value'] for m in memory_history if 'value' in m]
+                if mem_vals:
+                    perf_message += f"• Peak: {max(mem_vals):.2f} MB\n"
+                    perf_message += f"• Min: {min(mem_vals):.2f} MB\n"
             perf_message += f"\n"
-            
-            perf_message += f"❌ *Error Rate:*\n"
-            perf_message += f"• Rate: {perf_summary['error_rate']:.2f}%\n"
-            perf_message += f"\n"
-            
-            perf_message += f"🟢 *Uptime:*\n"
-            perf_message += f"• Status: {perf_summary['uptime_percent']:.1f}%\n"
-            perf_message += f"\n"
-            
+
             if response_trends:
-                perf_message += f"📈 *Response Time Trends:*\n"
-                for trend in response_trends[:5]:
-                    hour = trend['hour'].split(' ')[1][:5]
-                    perf_message += f"• {hour}: {trend['avg_response_time']:.1f}ms ({trend['count']} ops)\n"
+                perf_message += f"📈 *Response Time Trends (last 5):*\n"
+                for trend in response_trends[-5:]:
+                    ts = trend.get('timestamp', '')[:16]
+                    val = trend.get('value', 0)
+                    perf_message += f"• {ts}: {val:.1f}ms\n"
                 perf_message += f"\n"
-            
+
             perf_message += f"💡 *Commands:*\n"
             perf_message += f"• /performance [hours] - Custom time period\n"
             perf_message += f"• Max 168 hours (7 days)\n"
-            
+
             await loading_msg.edit_text(perf_message, parse_mode=ParseMode.MARKDOWN)
-            
+
             response_time = int((time.time() - start_time) * 1000)
             logger.info(f"/performance dashboard shown in {response_time}ms")
-            
-            self.db.log_performance_metric(
-                metric_type='response_time',
-                metric_name='/performance',
-                value=response_time,
-                unit='ms'
-            )
+
+            self.db.log_performance_metric(metric='response_time', value=response_time)
             
         except Exception as e:
             response_time = int((time.time() - start_time) * 1000)
@@ -2080,21 +2092,24 @@ class DeveloperCommands:
                 await self.send_unauthorized_message(update)
                 return
             
-            if not update.effective_user or not update.effective_chat or not update.effective_message:
+            if not update.effective_user or not update.effective_chat or not update.message:
                 return
-
-            loading_msg = await update.effective_message.reply_text("📊 Loading comprehensive dev stats...")
             
-            import psutil
+            loading_msg = await update.message.reply_text("📊 Loading comprehensive dev stats...")
+            
             from datetime import datetime, timedelta
-            
-            process = psutil.Process()
-            memory_mb = process.memory_info().rss / 1024 / 1024
-            
+
+            memory_mb = 0.0
+            uptime_seconds = 0.0
+            try:
+                import psutil
+                process = psutil.Process()
+                memory_mb = process.memory_info().rss / 1024 / 1024
+                uptime_seconds = (datetime.now() - datetime.fromtimestamp(process.create_time())).total_seconds()
+            except Exception:
+                pass
             if hasattr(self.quiz_manager, 'bot_start_time'):
                 uptime_seconds = (datetime.now() - self.quiz_manager.bot_start_time).total_seconds()
-            else:
-                uptime_seconds = (datetime.now() - datetime.fromtimestamp(process.create_time())).total_seconds()
             
             if uptime_seconds >= 86400:
                 uptime_str = f"{uptime_seconds/86400:.1f} days"
@@ -2128,7 +2143,7 @@ class DeveloperCommands:
             activity_feed = ""
             for activity in recent_activities:
                 time_ago = self.db.format_relative_time(activity['timestamp'])
-                activity_type = activity['activity_type']
+                activity_type = activity.get('type') or activity.get('activity_type', 'unknown')
                 username = activity.get('username', 'Unknown')
                 
                 if activity_type == 'command':
@@ -2152,18 +2167,24 @@ class DeveloperCommands:
             most_active_text = ""
             for i, user in enumerate(most_active[:5], 1):
                 name = user.get('first_name') or user.get('username') or f"User{user['user_id']}"
-                most_active_text += f"{i}. {name}: {user['activity_count']} actions\n"
+                most_active_text += f"{i}. {name}: {user.get('total_answers', 0)} answers\n"
             if not most_active_text:
                 most_active_text = "No active users yet"
             
+            rt_avg_24h  = perf_24h.get("response_time", {}).get("avg", 0) or 0
+            mem_avg_24h = perf_24h.get("memory", {}).get("avg", 0) or 0
+            quiz_today_total = quiz_today.get('total_quizzes', 0)
+            quiz_week_total  = quiz_week.get('total_quizzes', 0)
+            quiz_week_correct= quiz_week.get('correct_answers', 0)
+            success_rate = round(quiz_week_correct / quiz_week_total * 100, 1) if quiz_week_total else 0
+
             devstats_message = f"""📊 **Developer Statistics Dashboard**
 ━━━━━━━━━━━━━━━━━━━
 
 ⚙️ **System Health**
 • Uptime: {uptime_str}
-• Memory: {memory_mb:.1f} MB (avg: {perf_24h['avg_memory_mb']:.1f} MB)
-• Error Rate: {perf_24h['error_rate']:.1f}%
-• Avg Response: {perf_24h['avg_response_time']:.0f}ms
+• Memory: {memory_mb:.1f} MB (avg: {mem_avg_24h:.1f} MB)
+• Avg Response: {rt_avg_24h:.0f}ms
 
 📊 **Activity Breakdown** (Last 24h)
 • Commands Executed: {commands_24h:,}
@@ -2180,11 +2201,11 @@ class DeveloperCommands:
 • New Users (7d): {new_users}
 
 📝 **Quiz Performance**
-• Sent Today: {quiz_today['quizzes_sent']}
-• Sent This Week: {quiz_week['quizzes_sent']}
-• Success Rate: {quiz_week['success_rate']}%
+• Sent Today: {quiz_today_total}
+• Sent This Week: {quiz_week_total}
+• Success Rate: {success_rate}%
 
-🏆 **Most Active Users** (30d)
+🏆 **Most Active Users**
 {most_active_text}
 
 📜 **Recent Activity Feed**
@@ -2227,34 +2248,28 @@ class DeveloperCommands:
                 reply = await update.message.reply_text("❌ Error loading dev statistics")
                 await self.auto_clean_message(update.message, reply)
     
-    async def activity(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
-                       forced_type: str = None, forced_page: int = None):
-        """Live activity stream with filtering and pagination.
-        forced_type/forced_page let callback buttons drive it without context.args."""
+    async def activity(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Live activity stream with filtering and pagination"""
         start_time = time.time()
         try:
             if not await self.check_access(update):
                 await self.send_unauthorized_message(update)
                 return
-
-            if not update.effective_user or not update.effective_chat or not update.effective_message:
+            
+            if not update.effective_user or not update.effective_chat or not update.message:
                 return
-
-            if forced_type is not None:
-                activity_type = forced_type
-                page = forced_page or 1
-            else:
-                activity_type = context.args[0] if context.args else 'all'
-                page = int(context.args[1]) if context.args and len(context.args) > 1 else 1
-
+            
+            activity_type = context.args[0] if context.args else 'all'
+            page = int(context.args[1]) if context.args and len(context.args) > 1 else 1
+            
             valid_types = ['all', 'command', 'quiz_sent', 'quiz_answered', 'broadcast', 'error']
             if activity_type not in valid_types:
                 activity_type = 'all'
-
+            
             limit = 50
             offset = (page - 1) * limit
-
-            loading_msg = await update.effective_message.reply_text(f"📜 Loading activity stream ({activity_type})...")
+            
+            loading_msg = await update.message.reply_text(f"📜 Loading activity stream ({activity_type})...")
             
             if activity_type == 'all':
                 activities = self.db.get_recent_activities(limit)
@@ -2273,7 +2288,7 @@ Type: {activity_type.upper()}
             
             for activity in activities[:50]:
                 time_ago = self.db.format_relative_time(activity['timestamp'])
-                activity_type_str = activity['activity_type']
+                activity_type_str = activity.get('type') or activity.get('activity_type', 'unknown')
                 user_id = activity.get('user_id')
                 username = activity.get('username', 'Unknown')
                 chat_title = activity.get('chat_title', '')
@@ -2584,48 +2599,6 @@ Quiz ID #{quiz_id} doesn't exist.
 ━━━━━━━━━━━━━━━━━━━━━
 Select what to edit:"""
     
-    async def handle_dev_panel_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle devstats / activity dashboard buttons (refresh + filters)."""
-        query = update.callback_query
-        if not query:
-            return
-        try:
-            await query.answer()
-        except Exception:
-            pass
-        if not await self.check_access(update):
-            return
-
-        data = query.data or ""
-        old  = query.message
-        try:
-            if data == "devstats_refresh":
-                await self.devstats(update, context)
-            elif data == "devstats_performance":
-                await self.performance_stats(update, context)
-            elif data in ("devstats_activity", "activity_all"):
-                await self.activity(update, context, forced_type="all")
-            elif data == "activity_command":
-                await self.activity(update, context, forced_type="command")
-            elif data == "activity_quiz_sent":
-                await self.activity(update, context, forced_type="quiz_sent")
-            elif data == "activity_quiz_answered":
-                await self.activity(update, context, forced_type="quiz_answered")
-            elif data == "activity_error":
-                await self.activity(update, context, forced_type="error")
-            elif data.startswith("activity_refresh_"):
-                await self.activity(update, context,
-                                    forced_type=data[len("activity_refresh_"):])
-            else:
-                return
-            # Remove the old panel so the refreshed one is the only copy
-            try:
-                await old.delete()
-            except Exception:
-                pass
-        except Exception as e:
-            logger.error(f"handle_dev_panel_callback error: {e}")
-
     async def handle_edit_quiz_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle all edit quiz callback queries"""
         if not update.callback_query or not update.effective_user:
@@ -2793,7 +2766,7 @@ Example:
         
         try:
             success = self.db.update_question(
-                question_id=quiz_id,
+                qid=quiz_id,
                 question=quiz_data['question'],
                 options=quiz_data['options'],
                 correct_answer=quiz_data['correct_answer'],
