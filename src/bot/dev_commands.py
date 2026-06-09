@@ -321,12 +321,12 @@ class DeveloperCommands:
             # Use provided data from database instead of making API call
             if user_data:
                 # PM - use user's info from database
-                first_name = user_data.get('first_name') or "User"
+                first_name = (user_data.get('first_name') or user_data.get('name') or user_data.get('username') or "").strip() or "User"
                 username = f"@{user_data.get('username')}" if user_data.get('username') else "User"
                 chat_title = first_name
             elif group_data:
                 # Group - use group info from database
-                first_name = "Member"
+                first_name = "User"
                 username = "User"
                 chat_title = group_data.get('chat_title') or "Group"
             else:
@@ -334,11 +334,11 @@ class DeveloperCommands:
                 try:
                     chat = await context.bot.get_chat(chat_id)
                     if chat.type == 'private':
-                        first_name = chat.first_name or "User"
+                        first_name = (chat.first_name or "").strip() or "User"
                         username = f"@{chat.username}" if chat.username else "User"
                         chat_title = first_name
                     else:
-                        first_name = "Member"
+                        first_name = "User"
                         username = "User"
                         chat_title = chat.title or "Group"
                 except Exception as api_error:

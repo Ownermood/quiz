@@ -270,7 +270,7 @@ class TelegramQuizBot:
             if not uid:
                 continue
             try:
-                name    = user.get("name") or user.get("username") or "Darling"
+                name    = user.get("name") or user.get("username") or "User"
                 mention = UI.mention(uid, name)
                 text    = self._build_greeting(mention, bot_inline)
                 msg     = await self.application.bot.send_message(
