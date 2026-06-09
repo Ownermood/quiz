@@ -55,6 +55,7 @@ else:
 
             async with bot.application:
                 await bot.application.start()
+                bot.run_startup_tasks()
                 await bot.application.updater.start_polling(
                     drop_pending_updates=True,
                     allowed_updates=["message", "poll_answer", "callback_query",

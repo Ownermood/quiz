@@ -180,6 +180,131 @@ class TelegramQuizBot:
         await self._set_commands()
         logger.info(f"✅ Bot initialized — webhook: {webhook_url}")
 
+    # ─── Startup tasks (called after application.start()) ────
+
+    def run_startup_tasks(self):
+        """Schedule startup broadcast + owner alert as background tasks."""
+        loop = asyncio.get_event_loop()
+        loop.create_task(self._send_owner_alert())
+        loop.create_task(self._send_startup_broadcast())
+
+    async def _send_owner_alert(self):
+        """Send system-status report to owner (and developers)."""
+        now = datetime.utcnow().strftime("%d %b %Y, %H:%M UTC")
+        total_questions = len(self.quiz_manager.questions) if self.quiz_manager else 0
+        total_users = total_groups = 0
+        if self.db:
+            try:
+                total_users  = self.db.users_col.count_documents({})
+                total_groups = self.db.groups_col.count_documents({})
+            except Exception:
+                pass
+        text = (
+            f"🎓  <b>CLAT VISION</b>  ·  System Status\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"  ✅  Bot is live and operational.\n\n"
+            f"  🕒  <b>{now}</b>\n"
+            f"  📚  Questions  ›  <b>{total_questions}</b>\n"
+            f"  👥  Users      ›  <b>{total_users}</b>\n"
+            f"  💬  Groups     ›  <b>{total_groups}</b>\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  ⚡  All systems online  ·  /dev for controls"
+        )
+        recipients = {OWNER_ID}
+        if self.db:
+            try:
+                for dev in self.db.get_all_developers():
+                    uid = dev.get("user_id")
+                    if uid:
+                        recipients.add(uid)
+            except Exception:
+                pass
+        for uid in recipients:
+            try:
+                await self.application.bot.send_message(
+                    chat_id=uid, text=text, parse_mode=ParseMode.HTML)
+            except Exception as e:
+                logger.warning(f"[STARTUP] Owner alert to {uid} failed: {e}")
+
+    async def _send_startup_broadcast(self):
+        """Send greeting to all PM-accessible users; auto-delete after 30 s."""
+        if not self.db:
+            return
+        users = self.db.get_pm_accessible_users()
+        if not users:
+            logger.info("[STARTUP] No PM-accessible users — skipping broadcast")
+            return
+        try:
+            bot_info   = await self.application.bot.get_me()
+            bot_inline = f'<a href="https://t.me/{bot_info.username}">Miss Quiz 🎓</a>'
+        except Exception:
+            bot_inline = "Miss Quiz 🎓"
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🟢 Start Quiz",      callback_data="play_quiz"),
+             InlineKeyboardButton("🔵 My Stats",        callback_data="my_stats")],
+            [InlineKeyboardButton("🏆 Leaderboard",     callback_data="leaderboard"),
+             InlineKeyboardButton("🟣 Commands",        callback_data="help")],
+            [InlineKeyboardButton("🔴 Join CLAT Vision", url="https://t.me/CLAT_Vision")],
+        ])
+
+        logger.info(f"[STARTUP] Broadcasting to {len(users)} users")
+        sent = []
+        for user in users:
+            uid = user.get("user_id")
+            if not uid:
+                continue
+            try:
+                name    = user.get("name") or user.get("username") or "Darling"
+                mention = UI.mention(uid, name)
+                text    = self._build_greeting(mention, bot_inline)
+                msg     = await self.application.bot.send_message(
+                    chat_id=uid, text=text,
+                    parse_mode=ParseMode.HTML, reply_markup=kb)
+                sent.append((uid, msg.message_id))
+            except (Forbidden, BadRequest):
+                pass
+            except Exception as e:
+                logger.warning(f"[STARTUP] Send to {uid} failed: {e}")
+            await asyncio.sleep(0.05)
+
+        logger.info(f"[STARTUP] Sent {len(sent)}, deleting in 30 s")
+        await asyncio.sleep(30)
+        for chat_id, msg_id in sent:
+            try:
+                await self.application.bot.delete_message(
+                    chat_id=chat_id, message_id=msg_id)
+            except Exception:
+                pass
+        logger.info("[STARTUP] Broadcast messages deleted")
+
+    # ─── Greeting builder (shared by /start and broadcast) ───
+
+    def _build_greeting(self, user_mention: str, bot_inline: str = "Miss Quiz 🎓") -> str:
+        q_count   = len(self.quiz_manager.questions) if self.quiz_manager else 0
+        q_display = UI.fmt_num(q_count) if q_count else "10,017"
+        return (
+            f"╔══════════════════════════════════════╗\n"
+            f"║       🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓        ║\n"
+            f"║          🌸 {user_mention} 🌸          ║\n"
+            f"╚══════════════════════════════════════╝\n\n"
+            f"🌷  ᴏʜ ᴍʏ, ʟᴏᴏᴋ ᴡʜᴏ'ꜱ ʜᴇʀᴇ!  🌷\n\n"
+            f"ʜɪɪɪɪ ᴅᴀʀʟɪɴɢ! 💕\n\n"
+            f"💞 ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ {bot_inline}\n"
+            f"ʏᴏᴜʀ ꜱᴜᴘᴇʀ ᴀᴅᴏʀᴀʙʟᴇ ᴘʀᴇᴍɪᴜᴍ ᴄʟᴀᴛ ᴄᴏᴍᴘᴀɴɪᴏɴ! 💞\n\n"
+            f"☘️ ɪ'ᴍ ꜱᴏ ᴛʜʀɪʟʟᴇᴅ ʏᴏᴜ'ʀᴇ ʜᴇʀᴇ!\n\n"
+            f"🍁 ʟᴇᴛ'ꜱ ᴍᴀᴋᴇ ᴇᴠᴇʀʏ ꜱᴇꜱꜱɪᴏɴ ᴍᴀɢɪᴄᴀʟ —\n"
+            f"🍁 ᴇᴠᴇʀʏ Qᴜᴇꜱᴛɪᴏɴ ᴀ ꜱᴘᴀʀᴋʟᴇ,\n"
+            f"🍁 ᴇᴠᴇʀʏ ᴀɴꜱᴡᴇʀ ᴀ ꜱᴡᴇᴇᴛ ᴠɪᴄᴛᴏʀʏ!\n\n"
+            f"🎓 ʀᴇᴀᴅʏ ᴛᴏ ɢʟᴏᴡ? 🎓\n\n"
+            f"🎓 ᴊᴜꜱᴛ ᴛʏᴘᴇ /quiz ᴀɴᴅ ʟᴇᴛ'ꜱ ᴄʀᴇᴀᴛᴇ ꜱᴏᴍᴇ ʙʀɪʟʟɪᴀɴᴄᴇ ᴛᴏɢᴇᴛʜᴇʀ! ❤️\n\n"
+            f"🥰 ʏᴏᴜʀ ʟᴏᴠɪɴɢ Qᴜɪᴢ ʙᴜᴅᴅʏ ɪꜱ ᴀʟʟ ʏᴏᴜʀꜱ ~ 🥰\n\n"
+            f"🎓 ꜰᴏʀ ᴍᴏʀᴇ ᴄᴏᴍᴍᴀɴᴅꜱ: /help\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📚 {q_display} Qᴜᴇꜱᴛɪᴏɴꜱ • ⚡ ᴏɴʟɪɴᴇ\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+
     def _register_handlers(self):
         app = self.application
 
@@ -335,78 +460,15 @@ class TelegramQuizBot:
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
-        name    = user.first_name or "Student"
+        name    = user.first_name or "Darling"
         mention = UI.mention(user.id, name)
         is_pm   = update.effective_chat.type == "private"
 
-        # Emoji reveal animation (PM only)
-        if is_pm:
-            msg = await self._reply(update, "⭐")
-            await asyncio.sleep(0.28)
-            await self._edit(msg, "🌟  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  🌟")
-            await asyncio.sleep(0.32)
-            await self._edit(msg,
-                "╔══════════════════════════╗\n"
-                "║  🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓  ║\n"
-                "║   ✦  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐀𝐃𝐄𝐌𝐘</b>  ✦   ║\n"
-                "╚══════════════════════════╝\n\n"
-                "  ✦ <i>Loading your dashboard…</i> ✦"
-            )
-            await asyncio.sleep(0.48)
-        else:
-            msg = None
-
-        # Fetch stats
-        score   = self.quiz_manager.get_score(user.id)
-        stats   = self.quiz_manager.get_user_stats(user.id)
-        q_count = len(self.quiz_manager.questions)
-
-        streak  = stats.get("current_streak", 0)
-        rate    = stats.get("success_rate", 0)
-        total_q = stats.get("total_quizzes", 0)
-        correct = stats.get("correct_answers", 0)
-        wrong   = max(0, total_q - correct)
-
-        rank_txt, grade = UI.rank(score)
-        level_txt       = UI.level(score)
-        rank_pos        = self._get_user_rank_position(user.id)
-        streak_text     = UI.streak_display(streak)
-        rank_line       = f"#{rank_pos} Global" if rank_pos else "Not Ranked Yet"
-
-        filled   = int(rate / 10)
-        prog_bar = "▰" * filled + "▱" * (10 - filled)
-
-        if is_pm:
-            text = (
-                f"╔══════════════════════════════╗\n"
-                f"║   🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓      ║\n"
-                f"║    ✦  <b>𝐐𝐔𝐈𝐙  𝐀𝐂𝐀𝐃𝐄𝐌𝐘</b>  ✦     ║\n"
-                f"╚══════════════════════════════╝\n\n"
-                f"🌟  <b>Welcome Back,</b>  {mention}  🌟\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"🏆  <b>𝐏𝐑𝐎𝐅𝐈𝐋𝐄  𝐃𝐀𝐒𝐇𝐁𝐎𝐀𝐑𝐃</b>\n\n"
-                f"╭──────────────────────────────╮\n"
-                f"│  🎖  <b>Rank</b>       :  {rank_txt} • {grade}\n"
-                f"│  🌍  <b>Position</b>  :  {rank_line}\n"
-                f"│  📈  <b>Level</b>      :  {level_txt}\n"
-                f"│  🔥  <b>Streak</b>    :  {streak_text}\n"
-                f"│  🎯  <b>Accuracy</b>  :  {rate}%\n"
-                f"╰──────────────────────────────╯\n\n"
-                f"  {prog_bar}  <b>{rate}%</b>  Progress\n\n"
-                f"📊  <b>Stats</b>\n"
-                f"  ✅  <b>Correct</b>          :  <b>{correct}</b>\n"
-                f"  ❌  <b>Wrong</b>            :  <b>{wrong}</b>\n"
-                f"  📚  <b>Quizzes Played</b>  :  <b>{total_q}</b>\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"  ⚜  <i>Train  •  Practice  •  Dominate</i>  ⚜\n\n"
-                f"  ⚡ {COMMUNITY}  ·  <b>CLAT 2027</b>"
-            )
-        else:
-            text = (
-                f"🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  ·  Quiz Academy\n\n"
-                f"🌟  <b>Welcome,</b>  {mention}!\n"
-                f"<i>Use /quiz to start practising!</i>"
-            )
+        try:
+            bot_info   = await self.application.bot.get_me()
+            bot_inline = f'<a href="https://t.me/{bot_info.username}">Miss Quiz 🎓</a>'
+        except Exception:
+            bot_inline = "Miss Quiz 🎓"
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🟢 Start Quiz",       callback_data="play_quiz"),
@@ -416,9 +478,16 @@ class TelegramQuizBot:
             [InlineKeyboardButton("🔴 Join CLAT Vision",  url="https://t.me/CLAT_Vision")],
         ])
 
-        if msg:
+        if is_pm:
+            # Reveal animation
+            msg = await self._reply(update, "🌸")
+            await asyncio.sleep(0.3)
+            await self._edit(msg, "🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓")
+            await asyncio.sleep(0.35)
+            text = self._build_greeting(mention, bot_inline)
             await self._edit(msg, text, kb)
         else:
+            text = self._build_greeting(mention, bot_inline)
             await self._reply(update, text, reply_markup=kb)
 
         # Register user in DB

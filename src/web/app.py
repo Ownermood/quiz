@@ -95,6 +95,7 @@ async def _bot_lifecycle():
     await bot.application.start()
     telegram_bot = bot
     logger.info("✅ Telegram bot ready")
+    bot.run_startup_tasks()
 
     await asyncio.Event().wait()  # keep loop alive forever
 
