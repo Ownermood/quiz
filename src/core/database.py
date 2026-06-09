@@ -488,67 +488,85 @@ class DatabaseManager:
             return None
 
     def get_leaderboard_by_period(self, days: int, limit: int = 10) -> List[Dict]:
-        """Return leaderboard of top users by correct answers in last N days."""
+        """Return leaderboard sorted by: correct DESC → accuracy DESC → attempts DESC."""
         try:
             cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-            correct_agg = list(self.activities_col.aggregate([
-                {"$match": {"type": "quiz_answer", "is_correct": True,
-                            "timestamp": {"$gte": cutoff}}},
-                {"$group": {"_id": "$user_id", "correct": {"$sum": 1}}}
-            ]))
-            total_agg = list(self.activities_col.aggregate([
+            rows = list(self.activities_col.aggregate([
                 {"$match": {"type": "quiz_answer", "timestamp": {"$gte": cutoff}}},
-                {"$group": {"_id": "$user_id", "total": {"$sum": 1}}}
+                {"$group": {
+                    "_id":     "$user_id",
+                    "correct": {"$sum": {"$cond": [{"$eq": ["$is_correct", True]}, 1, 0]}},
+                    "total":   {"$sum": 1},
+                }},
+                {"$addFields": {
+                    "accuracy": {
+                        "$cond": [
+                            {"$gt": ["$total", 0]},
+                            {"$multiply": [{"$divide": ["$correct", "$total"]}, 100]},
+                            0
+                        ]
+                    }
+                }},
+                {"$sort": {"correct": -1, "accuracy": -1, "total": -1}},
+                {"$limit": limit},
             ]))
-            correct_map = {r["_id"]: r["correct"] for r in correct_agg}
-            total_map   = {r["_id"]: r["total"]   for r in total_agg}
-            all_uids    = set(correct_map.keys()) | set(total_map.keys())
-            entries = []
-            for uid in all_uids:
-                c = correct_map.get(uid, 0)
-                t = total_map.get(uid, 0)
-                acc = round(c / t * 100, 1) if t > 0 else 0
-                entries.append({
-                    "user_id":         uid,
-                    "correct_answers": c,
-                    "total_attempts":  t,
-                    "accuracy":        acc,
-                })
-            entries.sort(key=lambda x: x["correct_answers"], reverse=True)
-            return entries[:limit]
+            return [
+                {
+                    "user_id":         r["_id"],
+                    "correct_answers": r["correct"],
+                    "total_attempts":  r["total"],
+                    "accuracy":        round(r["accuracy"], 1),
+                }
+                for r in rows
+            ]
         except Exception as e:
             logger.error(f"get_leaderboard_by_period error: {e}")
             return []
 
     def get_user_rank_in_period(self, user_id: int, days: int) -> Dict:
         """
-        Return {rank, correct, total, accuracy} for a single user in the period.
-        Rank computed server-side: 1 + number of users with strictly more correct.
-        Works even when the user is outside the top 100.
+        Return {rank, correct, total, accuracy, above_correct} for a single user.
+        Rank = 1 + users with strictly more correct answers.
+        above_correct = the score of the user directly above (for gap calc).
         """
         try:
             cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-            user_correct = self.activities_col.count_documents(
-                {"type": "quiz_answer", "is_correct": True,
-                 "user_id": user_id, "timestamp": {"$gte": cutoff}})
-            user_total = self.activities_col.count_documents(
-                {"type": "quiz_answer",
-                 "user_id": user_id, "timestamp": {"$gte": cutoff}})
 
-            if user_total == 0:
-                return {"rank": 0, "correct": 0, "total": 0, "accuracy": 0}
+            agg = list(self.activities_col.aggregate([
+                {"$match": {"type": "quiz_answer",
+                            "user_id": user_id, "timestamp": {"$gte": cutoff}}},
+                {"$group": {
+                    "_id":     None,
+                    "correct": {"$sum": {"$cond": [{"$eq": ["$is_correct", True]}, 1, 0]}},
+                    "total":   {"$sum": 1},
+                }},
+            ]))
+            if not agg:
+                return {"rank": 0, "correct": 0, "total": 0, "accuracy": 0,
+                        "above_correct": None}
+
+            user_correct = agg[0]["correct"]
+            user_total   = agg[0]["total"]
+            acc          = round(user_correct / user_total * 100, 1) if user_total else 0
 
             higher_agg = list(self.activities_col.aggregate([
-                {"$match": {"type": "quiz_answer", "is_correct": True,
-                            "timestamp": {"$gte": cutoff}}},
-                {"$group": {"_id": "$user_id", "c": {"$sum": 1}}},
+                {"$match": {"type": "quiz_answer", "timestamp": {"$gte": cutoff}}},
+                {"$group": {"_id": "$user_id",
+                            "c": {"$sum": {"$cond": [{"$eq": ["$is_correct", True]}, 1, 0]}}}},
                 {"$match": {"c": {"$gt": user_correct}}},
-                {"$count": "n"},
+                {"$sort": {"c": 1}},   # lowest of the "higher" group = the direct neighbor above
             ]))
-            higher = higher_agg[0]["n"] if higher_agg else 0
-            acc = round(user_correct / user_total * 100, 1) if user_total else 0
-            return {"rank": higher + 1, "correct": user_correct,
-                    "total": user_total, "accuracy": acc}
+            higher       = len(higher_agg)
+            above_correct = higher_agg[0]["c"] if higher_agg else None
+
+            return {
+                "rank":          higher + 1,
+                "correct":       user_correct,
+                "total":         user_total,
+                "accuracy":      acc,
+                "above_correct": above_correct,
+            }
         except Exception as e:
             logger.error(f"get_user_rank_in_period error: {e}")
-            return {"rank": 0, "correct": 0, "total": 0, "accuracy": 0}
+            return {"rank": 0, "correct": 0, "total": 0, "accuracy": 0,
+                    "above_correct": None}

@@ -1288,33 +1288,35 @@ class TelegramQuizBot:
             await self._reply(update, text, reply_markup=kb)
 
     # ─── /leaderboard ────────────────────────────────────────
-    #  Paginated Top-100 leaderboard — 20 per page, 5 pages.
+    #  Paginated Top-50 leaderboard — 10 per page, 5 pages.
 
-    LB_PAGE_SIZE = 20
-    LB_MAX_RANKS = 100
-    LB_NAME_W    = 13     # display width for usernames (monospace column)
+    LB_PAGE_SIZE = 10
+    LB_MAX_RANKS = 50
 
     async def cmd_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self._show_leaderboard(update, context, mode="global", page=1, track=True)
 
     # ── Period mapping ─────────────────────────────────────────
     _LB_PERIOD = {"global": 36500, "weekly": 7, "monthly": 30}
-    _LB_LABEL  = {
-        "global":  "All-Time",
-        "weekly":  "Last 7 Days",
-        "monthly": "Last 30 Days",
-        "group":   "This Group",
-    }
+    _LB_LABEL  = {"global": "All-Time", "weekly": "This Week", "monthly": "This Month"}
 
-    def _lb_clip(self, name: str, width: int = 22) -> str:
-        """Single-line clip of a username (no HTML escaping — mention() escapes)."""
+    # Number emojis for positions 1-10
+    _LB_NUM = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣", 5: "5️⃣",
+               6: "6️⃣", 7: "7️⃣", 8: "8️⃣", 9: "9️⃣", 10: "🔟"}
+
+    @staticmethod
+    def _lb_badge(pos: int) -> str:
+        if pos == 1:     return "👑"
+        elif pos <= 3:   return "🥇"
+        elif pos <= 10:  return "🏅"
+        elif pos <= 20:  return "⭐"
+        else:            return "✨"
+
+    def _lb_clip(self, name: str, width: int = 20) -> str:
         name = (name or "").replace("\n", " ").strip()
-        if len(name) > width:
-            return name[:width - 1] + "…"
-        return name
+        return name[:width - 1] + "…" if len(name) > width else name
 
     def _lb_fetch(self, mode: str, chat_id: int) -> list:
-        """Fetch the full ranked list (cached) for a leaderboard mode."""
         key = f"{mode}:{chat_id if mode == 'group' else 0}"
         now = time.time()
         cached = self._lb_cache.get(key)
@@ -1334,36 +1336,105 @@ class TelegramQuizBot:
         return lb
 
     def _lb_resolve_names(self, uids: list) -> dict:
-        """Batch-resolve display names for a list of user IDs from the DB."""
         names: dict = {}
-        if not uids:
+        if not uids or not self.db:
             return names
-        if self.db:
-            try:
-                cursor = self.db.users_col.find(
-                    {"user_id": {"$in": uids}}, {"user_id": 1, "name": 1, "username": 1})
-                for doc in cursor:
-                    n = (doc.get("name") or doc.get("username") or "").strip()
-                    if n:
-                        names[doc["user_id"]] = n
-            except Exception as e:
-                logger.error(f"_lb_resolve_names error: {e}")
+        try:
+            for doc in self.db.users_col.find(
+                    {"user_id": {"$in": uids}},
+                    {"user_id": 1, "name": 1, "username": 1}):
+                n = (doc.get("name") or doc.get("username") or "").strip()
+                if n:
+                    names[doc["user_id"]] = n
+        except Exception as e:
+            logger.error(f"_lb_resolve_names error: {e}")
         return names
+
+    async def _show_my_rank(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                            mode: str = "global", edit_msg=None):
+        req_user = update.effective_user
+        if not req_user or not self.db:
+            await self._smart_edit(update,
+                                   "❌ Could not fetch your rank.", None, edit_msg)
+            return
+
+        SEP = "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        days = self._LB_PERIOD.get(mode, 36500)
+        try:
+            info   = self.db.get_user_rank_in_period(req_user.id, days)
+            streak = self.quiz_manager.get_user_stats(
+                req_user.id).get("current_streak", 0)
+        except Exception as e:
+            logger.error(f"_show_my_rank: {e}")
+            await self._smart_edit(update, "❌ Could not fetch rank data.", None, edit_msg)
+            return
+
+        rank    = info.get("rank", 0)
+        correct = info.get("correct", 0)
+        total   = info.get("total", 0)
+        acc     = info.get("accuracy", 0)
+        above   = info.get("above_correct")
+        mention = UI.mention(req_user.id, UI.display_name(req_user))
+
+        if rank == 1:     badge = "👑 Champion"
+        elif rank <= 3:   badge = "🥇 Elite"
+        elif rank <= 10:  badge = "🏅 Top 10"
+        elif rank <= 20:  badge = "⭐ Top 20"
+        elif rank <= 50:  badge = "✨ Top 50"
+        elif rank > 0:    badge = "🎯 Ranked"
+        else:             badge = "🎯 Unranked"
+
+        label   = self._LB_LABEL.get(mode, "All-Time")
+        lines   = [
+            f"📍  <b>𝐘𝐎𝐔𝐑 𝐑𝐀𝐍𝐊𝐈𝐍𝐆</b>",
+            f"",
+            SEP,
+            f"",
+            f"👤 {mention}",
+            f"",
+        ]
+
+        if rank > 0:
+            lines += [
+                f"🏅 Rank <b>#{rank}</b>  •  {badge}",
+                f"",
+                f"⭐ <b>{correct}</b> Points",
+                f"",
+                f"🎯 <b>{acc}%</b> Accuracy",
+                f"",
+                f"🔥 <b>{streak}</b> Streak",
+                f"",
+            ]
+            if above is not None and rank > 1:
+                gap = max(0, above - correct)
+                lines += [
+                    f"📈 Need <b>{gap}</b> More Point{'s' if gap != 1 else ''} For Rank <b>#{rank - 1}</b>",
+                    f"",
+                ]
+        else:
+            lines += [
+                f"<i>No activity yet for {label}.</i>",
+                f"Play a quiz to appear on the board!",
+                f"",
+            ]
+
+        lines.append(SEP)
+        text = "\n".join(lines)
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎯 Play Quiz",   callback_data="play_quiz"),
+             InlineKeyboardButton("🏆 Leaderboard", callback_data=f"lbp_{mode}_1")],
+            [InlineKeyboardButton("🏠 Home", callback_data="back_start")],
+        ])
+        await self._smart_edit(update, text, kb, edit_msg)
 
     async def _show_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                 mode: str = "global", page: int = 1, edit_msg=None,
                                 track: bool = False):
-        """
-        Paginated leaderboard.
-          mode  : 'global' | 'weekly' | 'monthly' | 'group'
-          page  : 1-indexed page number (20 entries/page, max 100 ranks)
-          track : True to delete the previous leaderboard msg and track the new one
-        """
-        chat      = update.effective_chat
-        is_group  = chat.type in ("group", "supergroup")
-        req_user  = update.effective_user
+        chat     = update.effective_chat
+        is_group = chat.type in ("group", "supergroup")
+        req_user = update.effective_user
 
-        # Groups always show the group leaderboard
         if is_group and mode in ("global", "weekly", "monthly"):
             mode = "group"
 
@@ -1380,17 +1451,18 @@ class TelegramQuizBot:
 
         lb    = self._lb_fetch(mode, chat.id)
         label = self._LB_LABEL.get(mode, "All-Time")
+        SEP   = "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+        # ── Empty state ───────────────────────────────────────
         if not lb:
             text = (
-                f"🏆  <b>CLAT VISION • LEADERBOARD</b>\n"
-                f"<i>{label}</i>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"   🥇  No champions yet!\n\n"
-                f"   Be the first to top the board.\n"
-                f"   Tap <b>Play Quiz</b> to begin. 🚀"
+                f"🏆  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍 • 𝐋𝐄𝐀𝐃𝐄𝐑𝐁𝐎𝐀𝐑𝐃</b>\n"
+                f"📅 {label} • Top {self.LB_MAX_RANKS} Players\n\n"
+                f"{SEP}\n\n"
+                f"🥇  No champions yet!\n\n"
+                f"Be the first to top the board.\n"
+                f"Tap <b>Play Quiz</b> to begin. 🚀"
             )
-            # IMPORTANT: keep the keyboard so the user can switch tabs / go back
             kb = self._build_lb_keyboard(mode, 1, 1, is_group)
             target = edit_msg or wait_msg
             if target:
@@ -1399,86 +1471,122 @@ class TelegramQuizBot:
                 await self._reply(update, text, reply_markup=kb)
             return
 
-        # ── Pagination math ────────────────────────────────────
-        total      = min(len(lb), self.LB_MAX_RANKS)
+        # ── Pagination ────────────────────────────────────────
+        total       = min(len(lb), self.LB_MAX_RANKS)
         total_pages = max(1, (total + self.LB_PAGE_SIZE - 1) // self.LB_PAGE_SIZE)
-        page       = max(1, min(page, total_pages))    # clamp — callback security
-        start      = (page - 1) * self.LB_PAGE_SIZE
-        end        = min(start + self.LB_PAGE_SIZE, total)
-        page_slice = lb[start:end]
+        page        = max(1, min(page, total_pages))
+        start       = (page - 1) * self.LB_PAGE_SIZE
+        end         = min(start + self.LB_PAGE_SIZE, total)
+        page_slice  = lb[start:end]
 
-        # ── Resolve names for this page only ───────────────────
+        # ── Batch-fetch names for this page ───────────────────
         page_uids = [e.get("user_id") for e in page_slice]
         names     = self._lb_resolve_names(page_uids)
 
-        # ── Build premium row list (clickable, emoji-safe) ─────
-        medals    = {1: "🥇", 2: "🥈", 3: "🥉"}
-        rows      = []
-        for i, entry in enumerate(page_slice):
-            rank  = start + i + 1
-            uid   = entry.get("user_id")
-            score = entry.get("correct_answers", entry.get("score", 0))
-            is_me = bool(req_user and uid == req_user.id)
+        def _mention(entry):
+            uid  = entry.get("user_id")
+            raw  = names.get(uid) or f"User{str(uid)[-4:]}"
+            disp = self._lb_clip(raw, 20)
+            return UI.mention(uid, disp) if uid else disp
 
-            raw_name = names.get(uid) or f"User {str(uid)[-4:]}"
-            disp    = self._lb_clip(raw_name, 22)
-            mention = UI.mention(uid, disp)
+        # ── Build message ─────────────────────────────────────
+        lines = [
+            f"🏆  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍 • 𝐋𝐄𝐀𝐃𝐄𝐑𝐁𝐎𝐀𝐑𝐃</b>",
+            f"📅 {label} • Top {total} Players",
+            f"",
+            SEP,
+        ]
 
-            # Rank badge: medal for top 3, padded number otherwise
-            badge = medals.get(rank, f"<code>{rank:>2}.</code>")
+        if page == 1:
+            # Champions (positions 1-3)
+            top3 = page_slice[:3]
+            rest = page_slice[3:]
 
-            if is_me:
-                rows.append(f"▸ {badge}  <b>{mention}</b>  ·  <b>{score}</b>  ⭐")
-            else:
-                rows.append(f"{badge}  {mention}  ·  <b>{score}</b>")
+            lines += ["", "👑  <b>𝐂𝐇𝐀𝐌𝐏𝐈𝐎𝐍𝐒</b>", ""]
+            for i, entry in enumerate(top3):
+                pts = entry.get("correct_answers", entry.get("score", 0))
+                lines += [
+                    f"{'🥇🥈🥉'[i]} {_mention(entry)}",
+                    f"⭐ <b>{pts}</b> Points",
+                    "",
+                ]
 
-            # Visual gap after the podium (top 3) on page 1
-            if rank == 3 and page == 1:
-                rows.append("┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄")
+            if rest:
+                lines += [SEP, "", "🏅  <b>𝐓𝐎𝐏 𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒</b>", ""]
+                for i, entry in enumerate(rest):
+                    pos = 4 + i
+                    pts = entry.get("correct_answers", entry.get("score", 0))
+                    num = self._LB_NUM.get(pos, f"<b>{pos}.</b>")
+                    lines += [
+                        f"{num} {_mention(entry)}",
+                        f"⭐ <b>{pts}</b> Points",
+                        "",
+                    ]
+        else:
+            lines += ["", f"🏅  <b>𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒</b>  •  <i>#{start + 1}–#{end}</i>", ""]
+            for i, entry in enumerate(page_slice):
+                pos   = start + i + 1
+                pts   = entry.get("correct_answers", entry.get("score", 0))
+                badge = self._lb_badge(pos)
+                lines += [
+                    f"{badge} <b>#{pos}</b>  {_mention(entry)}",
+                    f"⭐ <b>{pts}</b> Points",
+                    "",
+                ]
 
-        body = "\n".join(rows)
-
-        # ── YOUR POSITION section (always visible) ─────────────
-        my_section = ""
+        # ── Your Position footer ──────────────────────────────
         if req_user and mode != "group" and self.db:
             try:
-                info = self.db.get_user_rank_in_period(
-                    req_user.id, self._LB_PERIOD.get(mode, 36500))
+                days   = self._LB_PERIOD.get(mode, 36500)
+                info   = self.db.get_user_rank_in_period(req_user.id, days)
+                streak = self.quiz_manager.get_user_stats(
+                    req_user.id).get("current_streak", 0)
                 if info.get("total", 0) > 0:
-                    streak = self.quiz_manager.get_user_stats(
-                        req_user.id).get("current_streak", 0)
-                    my_section = (
-                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"📊  <b>YOUR POSITION</b>\n"
-                        f"   🏅 Rank <b>#{info['rank']}</b>   "
-                        f"⭐ <b>{info['correct']}</b> pts   "
-                        f"🔥 <b>{streak}</b>\n"
-                    )
+                    u_rank = info["rank"]
+                    u_pts  = info["correct"]
+                    above  = info.get("above_correct")
+
+                    lines += [SEP, "", "📍  <b>𝐘𝐎𝐔𝐑 𝐏𝐎𝐒𝐈𝐓𝐈𝐎𝐍</b>", ""]
+                    lines.append(f"🏅 Rank <b>#{u_rank}</b>")
+                    lines.append(f"")
+                    lines.append(f"⭐ <b>{u_pts}</b> Points")
+                    lines.append(f"")
+                    lines.append(f"🔥 <b>{streak}</b> Streak")
+
+                    if above is not None and u_rank > 1:
+                        gap = max(0, above - u_pts)
+                        lines += [
+                            f"",
+                            f"📈 Need <b>{gap}</b> More Point{'s' if gap != 1 else ''}"
+                            f" For Rank <b>#{u_rank - 1}</b>",
+                        ]
+                    lines.append("")
             except Exception as e:
                 logger.error(f"leaderboard my_section: {e}")
         elif req_user and mode == "group":
             for idx, e in enumerate(lb):
                 if e.get("user_id") == req_user.id:
-                    my_section = (
-                        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"📊  <b>YOUR POSITION</b>\n"
-                        f"   🏅 Rank <b>#{idx + 1}</b>   "
-                        f"⭐ <b>{e.get('correct_answers', 0)}</b> pts\n"
-                    )
+                    u_pts = e.get("correct_answers", 0)
+                    lines += [SEP, "", "📍  <b>𝐘𝐎𝐔𝐑 𝐏𝐎𝐒𝐈𝐓𝐈𝐎𝐍</b>", ""]
+                    lines.append(f"🏅 Rank <b>#{idx + 1}</b>")
+                    lines.append(f"")
+                    lines.append(f"⭐ <b>{u_pts}</b> Points")
+                    lines.append("")
                     break
 
-        text = (
-            f"🏆  <b>CLAT VISION • LEADERBOARD</b>\n"
-            f"<i>{label}  ·  Top {total}</i>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{body}\n"
-            f"{my_section}"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📄  Page <b>{page}</b> of <b>{total_pages}</b>"
-        )
+        # ── Badge legend + page indicator ─────────────────────
+        lines += [
+            SEP,
+            "",
+            "👑 Champion • 🥇 Elite • 🏅 Top 10 • ⭐ Top 20 • ✨ Top 50",
+            "",
+            SEP,
+            "",
+            f"📄 Page {page} / {total_pages} • Updated Live",
+        ]
+        text = "\n".join(lines)
 
         kb = self._build_lb_keyboard(mode, page, total_pages, is_group)
-
         target = edit_msg or wait_msg
         if target:
             await self._edit(target, text, kb)
@@ -1487,36 +1595,38 @@ class TelegramQuizBot:
 
     def _build_lb_keyboard(self, mode: str, page: int, total_pages: int,
                            is_group: bool) -> InlineKeyboardMarkup:
-        """Build navigation + mode-tab keyboard."""
-        # Navigation row — only show Prev/Next when they actually go somewhere.
-        nav_row = []
-        if page > 1:
-            nav_row.append(InlineKeyboardButton(
-                "◀️ Prev", callback_data=f"lbp_{mode}_{page-1}"))
-        nav_row.append(InlineKeyboardButton(
-            f"📄 {page}/{total_pages}", callback_data=f"lbp_{mode}_{page}"))
-        if page < total_pages:
-            nav_row.append(InlineKeyboardButton(
-                "Next ▶️", callback_data=f"lbp_{mode}_{page+1}"))
+        has_prev = page > 1
+        has_next = page < total_pages
 
-        rows = [nav_row]
+        rows = []
+        # Mode tabs (not shown in group mode)
         if not is_group and mode != "group":
             rows.append([
                 InlineKeyboardButton(
-                    "🌍 Global ✅" if mode == "global" else "🌍 Global",
+                    "🌐 All-Time" + (" ✓" if mode == "global"  else ""),
                     callback_data="lbp_global_1"),
                 InlineKeyboardButton(
-                    "📅 Weekly ✅" if mode == "weekly" else "📅 Weekly",
+                    "📅 Weekly"   + (" ✓" if mode == "weekly"  else ""),
                     callback_data="lbp_weekly_1"),
                 InlineKeyboardButton(
-                    "🗓 Monthly ✅" if mode == "monthly" else "🗓 Monthly",
+                    "🗓 Monthly"  + (" ✓" if mode == "monthly" else ""),
                     callback_data="lbp_monthly_1"),
             ])
+        # Navigation row
         rows.append([
-            InlineKeyboardButton("🎯 Play Quiz", callback_data="play_quiz"),
-            InlineKeyboardButton("📊 My Stats",  callback_data="my_stats"),
+            InlineKeyboardButton(
+                "⬅️ Previous" if has_prev else "⬅️",
+                callback_data=f"lbp_{mode}_{page - 1}" if has_prev else "lb_noop"),
+            InlineKeyboardButton(
+                "📍 My Rank",
+                callback_data=f"lb_myrank_{mode}"),
+            InlineKeyboardButton(
+                "🏠 Home",
+                callback_data="back_start"),
+            InlineKeyboardButton(
+                "➡️ Next" if has_next else "➡️",
+                callback_data=f"lbp_{mode}_{page + 1}" if has_next else "lb_noop"),
         ])
-        rows.append([InlineKeyboardButton("🏠 Home", callback_data="back_start")])
         return InlineKeyboardMarkup(rows)
 
     # ─── /addquiz ────────────────────────────────────────────
@@ -2470,7 +2580,15 @@ class TelegramQuizBot:
                                          edit_msg=query.message, track=True)
 
         elif data == "lb_noop":
-            pass  # disabled nav button / page indicator — already answered
+            pass  # disabled nav button — already answered
+
+        elif data and data.startswith("lb_myrank_"):
+            # lb_myrank_global / lb_myrank_weekly / lb_myrank_monthly
+            parts = data.split("_")
+            mode  = parts[2] if len(parts) > 2 else "global"
+            if mode not in ("global", "weekly", "monthly"):
+                mode = "global"
+            await self._show_my_rank(update, context, mode=mode, edit_msg=query.message)
 
         elif data and data.startswith("lbp_"):
             # Paginated navigation: lbp_{mode}_{page}
