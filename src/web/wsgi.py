@@ -1,12 +1,4 @@
-"""
-WSGI Entry Point for Production Deployment
-
-This module is used by gunicorn and other WSGI servers to run the Flask application.
-It handles webhook mode initialization when deployed to platforms like Railway, Render, or Heroku.
-
-Usage:
-    gunicorn src.web.wsgi:app --bind 0.0.0.0:$PORT
-"""
+"""WSGI entry point — imports Flask app and starts bot background thread."""
 
 import os
 import logging
@@ -17,34 +9,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def create_application():
-    """Create and configure the Flask application for WSGI deployment"""
-    from src.web.app import get_app, init_bot_webhook
-    from src.core.config import Config
-    
-    logger.info("Initializing application for WSGI server...")
-    
-    config = Config.load(validate=True)
-    
-    mode = config.get_mode()
-    logger.info(f"Detected mode: {mode}")
-    
-    if mode == "webhook":
-        webhook_url = config.get_webhook_url()
-        if webhook_url:
-            logger.info(f"Initializing webhook bot with URL: {webhook_url}")
-            try:
-                init_bot_webhook(webhook_url)
-                logger.info("✅ Webhook bot initialized successfully")
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize webhook bot: {e}")
-                raise
-        else:
-            logger.warning("⚠️ Webhook mode detected but WEBHOOK_URL not set")
-    
-    app = get_app()
-    logger.info(f"✅ Flask application created and ready on port {config.port}")
-    
-    return app
+# Import the Flask app directly — routes are registered at import time
+from src.web.app import app, init_bot_webhook  # noqa: E402
 
-app = create_application()
+# Start the Telegram bot in background if token + webhook URL are available
+_token       = os.environ.get("TELEGRAM_TOKEN", "")
+_webhook_url = os.environ.get("WEBHOOK_URL", "").rstrip("/")
+_render_url  = os.environ.get("RENDER_URL", "").rstrip("/")
+_base_url    = _render_url or _webhook_url
+
+if _token and _base_url:
+    logger.info(f"Starting webhook bot → {_base_url}/webhook")
+    init_bot_webhook(_base_url)
+    logger.info("✅ Bot background thread started")
+else:
+    logger.warning("TELEGRAM_TOKEN or WEBHOOK_URL missing — bot not started")
+
+logger.info("✅ WSGI app ready")
+
+# 'app' is re-exported here so Gunicorn (src.web.wsgi:app) finds it
