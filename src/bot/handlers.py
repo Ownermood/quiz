@@ -1312,18 +1312,102 @@ class TelegramQuizBot:
 
     # ─── /leaderboard ────────────────────────────────────────
 
-    _LB_PAGE_SIZE  = 10
-    _LB_MAX        = 50   # top 50 only
+    _LB_PAGE_SIZE = 10
+    _LB_MAX       = 50
 
-    async def cmd_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await self._show_leaderboard(update, context, mode="global", page=0)
+    async def cmd_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                              edit_msg=None):
+        uid = update.effective_user.id if update.effective_user else None
+        if uid:
+            self._nav_push(uid, "leaderboard")
+        await self._show_leaderboard(update, context, mode="global", page=0,
+                                     edit_msg=edit_msg)
+
+    # ── My Rank screen ────────────────────────────────────────
+
+    async def _show_my_rank(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                            mode: str = "global", edit_msg=None):
+        user = update.effective_user
+        if not user:
+            return
+        if not self.db:
+            await self._smart_edit(update, "❌ Database not available.", None, edit_msg)
+            return
+
+        try:
+            ri  = self.db.get_user_rank(user.id)
+            nb  = self.db.get_neighbor_ranks(user.id)
+        except Exception as e:
+            logger.error(f"_show_my_rank: {e}")
+            await self._smart_edit(update, "❌ Could not fetch rank.", None, edit_msg)
+            return
+
+        name    = UI.display_name(user)
+        mention = UI.mention(user.id, name)
+        rank    = ri.get("global_rank", "?")
+        total   = ri.get("total_users", "?")
+        marks   = ri.get("total_marks", 0)
+        correct = ri.get("correct_answers", 0)
+        total_q = ri.get("total_questions", 1) or 1
+        quizzes = ri.get("quizzes_completed", 0)
+        streak  = ri.get("current_streak", 0)
+        xp      = ri.get("xp", 0)
+        acc     = round(correct / total_q * 100, 1) if total_q > 0 else 0
+
+        lines = [
+            f"╔══════════════════════════════════════╗",
+            f"║      📍  <b>𝐘𝐎𝐔𝐑  𝐑𝐀𝐍𝐊𝐈𝐍𝐆</b>  📍      ║",
+            f"╚══════════════════════════════════════╝",
+            f"",
+            f"👤  {mention}",
+            f"",
+            f"{UI.LINE}",
+            f"  🏆  Global Rank   ›  <b>#{rank}</b>  of  <b>{total}</b>",
+            f"  ⭐  Total Score   ›  <b>{marks:,}</b>",
+            f"  📊  Accuracy      ›  <b>{acc}%</b>",
+            f"  🎯  Quizzes       ›  <b>{quizzes}</b>",
+            f"  ✅  Correct       ›  <b>{correct:,}</b>",
+            f"  🔥  Streak        ›  <b>{streak} days</b>",
+            f"  ⚡  XP            ›  <b>{xp:,}</b>",
+            f"{UI.LINE}",
+        ]
+
+        # Neighbors
+        above = nb.get("above")
+        below = nb.get("below")
+        if above:
+            a_name   = (above.get("name") or above.get("username") or "User")[:16]
+            a_marks  = above.get("total_marks", 0)
+            a_uid    = above.get("user_id")
+            a_ref    = UI.mention(a_uid, a_name) if a_uid else a_name
+            gap      = a_marks - marks
+            lines.append(f"  👆  Above #{rank-1}:  {a_ref}  ⭐{a_marks:,}  <i>(+{gap:,} pts)</i>")
+        if below:
+            b_name   = (below.get("name") or below.get("username") or "User")[:16]
+            b_marks  = below.get("total_marks", 0)
+            b_uid    = below.get("user_id")
+            b_ref    = UI.mention(b_uid, b_name) if b_uid else b_name
+            gap      = marks - b_marks
+            lines.append(f"  👇  Below #{rank+1}:  {b_ref}  ⭐{b_marks:,}  <i>(-{gap:,} pts)</i>")
+
+        lines += [f"{UI.LINE}", f"  🎓  <i>Keep playing to rise higher!</i>"]
+        text = "\n".join(lines)
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎓 Play Quiz",    callback_data="play_quiz"),
+             InlineKeyboardButton("🎓 Leaderboard",  callback_data="lb_global_0")],
+            self._nav_row(back_screen="leaderboard"),
+        ])
+        await self._smart_edit(update, text, kb, edit_msg)
+
+    # ── Main leaderboard renderer ─────────────────────────────
 
     async def _show_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                 mode: str = "global", page: int = 0, edit_msg=None):
-        PZ   = self._LB_PAGE_SIZE
-        MAX  = self._LB_MAX
-        chat = update.effective_chat
-        user = update.effective_user
+        PZ       = self._LB_PAGE_SIZE
+        MAX      = self._LB_MAX
+        chat     = update.effective_chat
+        user     = update.effective_user
         is_group = chat.type in ("group", "supergroup")
 
         if edit_msg is None:
@@ -1339,31 +1423,33 @@ class TelegramQuizBot:
 
         # ── Fetch data ────────────────────────────────────────
         if mode == "group":
-            raw      = self.quiz_manager.get_group_leaderboard(chat.id)
-            all_lb   = raw.get("leaderboard", [])
-            lb       = all_lb[offset:offset + PZ]
-            total_e  = min(len(all_lb), MAX)
-            h_title  = "𝐆𝐑𝐎𝐔𝐏  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒"
-            sub_line = (f"  👥  Attempts: <b>{raw.get('total_quizzes',0)}</b>"
+            raw     = self.quiz_manager.get_group_leaderboard(chat.id)
+            all_lb  = raw.get("leaderboard", [])
+            lb      = all_lb[offset:offset + PZ]
+            total_e = min(len(all_lb), MAX)
+            h_title = "𝐆𝐑𝐎𝐔𝐏  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒"
+            sub_note = (f"  👥  Attempts: <b>{raw.get('total_quizzes',0)}</b>"
                         f"  ·  Accuracy: <b>{raw.get('group_accuracy',0)}%</b>")
         elif self.db:
-            lb       = self.db.get_leaderboard_page(mode=mode if mode != "group" else "global",
-                                                    limit=PZ, offset=offset)
-            total_e  = min(self.db.users_col.count_documents({}), MAX)
-            titles   = {"global": "𝐆𝐋𝐎𝐁𝐀𝐋  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒",
-                        "weekly": "𝐖𝐄𝐄𝐊𝐋𝐘  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒",
-                        "monthly": "𝐌𝐎𝐍𝐓𝐇𝐋𝐘  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒"}
-            h_title  = titles.get(mode, "𝐆𝐋𝐎𝐁𝐀𝐋  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒")
-            sub_line = ""
+            lb      = self.db.get_leaderboard_page(
+                mode=mode if mode != "group" else "global",
+                limit=PZ, offset=offset)
+            total_e = min(self.db.users_col.count_documents({}), MAX)
+            h_title = {"global":  "𝐆𝐋𝐎𝐁𝐀𝐋  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒",
+                       "weekly":  "𝐖𝐄𝐄𝐊𝐋𝐘  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒",
+                       "monthly": "𝐌𝐎𝐍𝐓𝐇𝐋𝐘  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒"}.get(mode, "𝐆𝐋𝐎𝐁𝐀𝐋  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒")
+            sub_note = ""
         else:
-            all_lb   = self.quiz_manager.get_leaderboard()
-            lb       = all_lb[offset:offset + PZ]
-            total_e  = min(len(all_lb), MAX)
-            h_title  = "𝐆𝐋𝐎𝐁𝐀𝐋  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒"
-            sub_line = ""
+            all_lb  = self.quiz_manager.get_leaderboard()
+            lb      = all_lb[offset:offset + PZ]
+            total_e = min(len(all_lb), MAX)
+            h_title = "𝐆𝐋𝐎𝐁𝐀𝐋  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒"
+            sub_note = ""
 
         total_pages = max(1, (total_e + PZ - 1) // PZ)
         page        = min(page, total_pages - 1)
+        rank_start  = offset + 1
+        rank_end    = min(offset + PZ, total_e)
 
         # ── Empty state ───────────────────────────────────────
         if not lb:
@@ -1381,86 +1467,111 @@ class TelegramQuizBot:
                 await self._reply(update, text)
             return
 
-        # ── Bulk-fetch display names ──────────────────────────
+        # ── Bulk-fetch names (1 query) ────────────────────────
         uids     = [e.get("user_id") for e in lb if e.get("user_id")]
         name_map = {}
         if self.db and uids:
             try:
-                docs = self.db.users_col.find(
-                    {"user_id": {"$in": uids}},
-                    {"user_id": 1, "name": 1, "username": 1})
-                for d in docs:
+                for d in self.db.users_col.find(
+                        {"user_id": {"$in": uids}},
+                        {"user_id": 1, "name": 1, "username": 1}):
                     uid = d.get("user_id")
-                    name_map[uid] = (d.get("name") or d.get("username") or
-                                     f"User{str(uid)[-4:]}")
+                    name_map[uid] = d.get("name") or d.get("username") or f"User{str(uid)[-4:]}"
             except Exception:
                 pass
-
-        top_xp = max((e.get("xp", e.get("score", 1)) for e in lb), default=1) or 1
 
         # ── Build message ─────────────────────────────────────
         lines = [
             f"╔══════════════════════════════════════╗",
             f"║     🏆  <b>{h_title}</b>  🏆     ║",
             f"╚══════════════════════════════════════╝",
-            f"  📄  Page <b>{page + 1}</b> / <b>{total_pages}</b>"
-            f"  ·  🏅 Top <b>{MAX}</b>",
+            f"  📄  Page <b>{page+1}</b>/<b>{total_pages}</b>"
+            f"  ·  Ranks <b>{rank_start}–{rank_end}</b>  ·  🏅 Top {MAX}",
         ]
-        if sub_line:
-            lines.append(sub_line)
-        lines.append("")
+        if sub_note:
+            lines.append(sub_note)
+
+        # Separate top-3 section on page 1
+        if page == 0 and len(lb) >= 3:
+            lines.append(f"\n{'━'*30}")
+            lines.append(f"  ✨  <b>𝐓𝐎𝐏  𝟑  𝐂𝐇𝐀𝐌𝐏𝐈𝐎𝐍𝐒</b>  ✨")
+            lines.append(f"{'━'*30}")
+
+        top_marks = max((e.get("total_marks", e.get("xp", 1)) for e in lb), default=1) or 1
 
         for i, entry in enumerate(lb):
-            uid     = entry.get("user_id")
-            xp      = entry.get("xp", entry.get("score", 0))
-            correct = entry.get("correct_answers", entry.get("score", 0))
-            total_q = entry.get("total_questions", 1) or 1
-            level   = entry.get("level", 1)
-            acc     = round(correct / total_q * 100, 1) if total_q > 0 else 0
-            pos     = offset + i + 1
+            uid       = entry.get("user_id")
+            marks     = entry.get("total_marks", entry.get("xp", entry.get("score", 0)))
+            correct   = entry.get("correct_answers", entry.get("score", 0))
+            total_q   = entry.get("total_questions", 1) or 1
+            quizzes   = entry.get("quizzes_attempted", entry.get("quizzes_completed", 0))
+            streak    = entry.get("current_streak", 0)
+            xp        = entry.get("xp", 0)
+            acc       = round(correct / total_q * 100, 1) if total_q > 0 else 0
+            pos       = offset + i + 1
 
-            raw_name = (name_map.get(uid) or
-                        (OWNER_NAME if uid == OWNER_ID else f"User{str(uid)[-4:]}"))
-            display  = raw_name[:18] + "…" if len(raw_name) > 18 else raw_name
-            mention  = UI.mention(uid, display)
+            raw  = name_map.get(uid) or (OWNER_NAME if uid == OWNER_ID else f"User{str(uid)[-4:]}")
+            disp = raw[:17] + "…" if len(raw) > 17 else raw
+            men  = UI.mention(uid, disp)
 
-            bar_fill = max(0, min(10, int(xp / top_xp * 10)))
-            bar      = "█" * bar_fill + "░" * (10 - bar_fill)
+            bar_f = max(0, min(10, int(marks / top_marks * 10)))
+            bar   = "█" * bar_f + "░" * (10 - bar_f)
+            streak_str = f"  🔥 {streak}d" if streak > 0 else ""
 
             if pos == 1:
-                lines += [f"🥇  {mention}  <b>Lv.{level}</b>",
-                          f"    [{bar}]  ⚡ <b>{xp} XP</b>  ·  🎯 {acc}%"]
+                lines += [
+                    f"\n🥇  {men}",
+                    f"    🎯 <b>{quizzes}</b> quizzes"
+                    f"  ✅ <b>{correct:,}</b> correct"
+                    f"  📊 <b>{acc}%</b>",
+                    f"    ⭐ <b>{marks:,} pts</b>"
+                    f"  ⚡ {xp:,} XP{streak_str}",
+                    f"    [{bar}]",
+                ]
             elif pos == 2:
-                lines += [f"🥈  {mention}  <b>Lv.{level}</b>",
-                          f"    [{bar}]  ⚡ <b>{xp} XP</b>  ·  🎯 {acc}%"]
+                lines += [
+                    f"\n🥈  {men}",
+                    f"    🎯 <b>{quizzes}</b> quizzes"
+                    f"  ✅ <b>{correct:,}</b> correct"
+                    f"  📊 <b>{acc}%</b>",
+                    f"    ⭐ <b>{marks:,} pts</b>"
+                    f"  ⚡ {xp:,} XP{streak_str}",
+                    f"    [{bar}]",
+                ]
             elif pos == 3:
-                lines += [f"🥉  {mention}  <b>Lv.{level}</b>",
-                          f"    [{bar}]  ⚡ <b>{xp} XP</b>  ·  🎯 {acc}%"]
-            elif pos <= 10:
-                lines.append(
-                    f"  <b>{pos:2d}.</b>  {mention}"
-                    f"  —  ⚡ <b>{xp}</b>  Lv.<b>{level}</b>  🎯 {acc}%")
+                lines += [
+                    f"\n🥉  {men}",
+                    f"    🎯 <b>{quizzes}</b> quizzes"
+                    f"  ✅ <b>{correct:,}</b> correct"
+                    f"  📊 <b>{acc}%</b>",
+                    f"    ⭐ <b>{marks:,} pts</b>"
+                    f"  ⚡ {xp:,} XP{streak_str}",
+                    f"    [{bar}]",
+                ]
             else:
+                # Compact row for 4-50
+                if i == 3 and page == 0:
+                    lines.append(f"\n{'━'*30}")
+                streak_icon = f" 🔥{streak}d" if streak > 0 else ""
                 lines.append(
-                    f"  {pos:2d}.  {mention}"
-                    f"  ⚡{xp}  L{level}  {acc}%")
+                    f"  <b>{pos:2d}.</b>  {men}"
+                    f"  ⭐<b>{marks:,}</b>"
+                    f"  📊{acc}%"
+                    f"  🎯{quizzes}{streak_icon}")
 
         # ── Your rank footer ──────────────────────────────────
         if user and self.db and mode != "group":
             try:
-                rank_info = self.db.get_user_rank(user.id)
-                udoc      = self.db.users_col.find_one(
-                    {"user_id": user.id}, {"xp": 1})
-                u_xp   = udoc.get("xp", 0) if udoc else 0
-                u_rank = rank_info.get("global_rank", "?")
+                ri     = self.db.get_user_rank(user.id)
+                u_rank = ri.get("global_rank", "?")
+                u_pts  = ri.get("total_marks", 0)
                 lines += [f"\n{UI.LINE}",
                           f"  👤  Your Rank: <b>#{u_rank}</b>"
-                          f"  ·  ⚡ <b>{u_xp} XP</b>"]
+                          f"  ·  ⭐ <b>{u_pts:,} pts</b>"]
             except Exception:
                 pass
 
-        lines += [f"\n{UI.LINE}",
-                  f"  🎓  <i>Keep playing to rise higher!</i>"]
+        lines += [f"\n{UI.LINE}", f"  🎓  <i>Keep playing to rise higher!</i>"]
         text = "\n".join(lines)
 
         # ── Keyboard ──────────────────────────────────────────
@@ -1479,22 +1590,16 @@ class TelegramQuizBot:
                     callback_data="lb_monthly_0"),
             ])
 
-        prev_cb = f"lb_{mode}_{page - 1}" if page > 0 else "lb_noop"
-        next_cb = (f"lb_{mode}_{page + 1}"
-                   if page < total_pages - 1 and len(lb) == PZ else "lb_noop")
+        has_prev = page > 0
+        has_next = page < total_pages - 1 and len(lb) == PZ
         rows.append([
-            InlineKeyboardButton("◀ Prev" if page > 0 else "◀",
-                                 callback_data=prev_cb),
-            InlineKeyboardButton(f"📄 {page + 1}/{total_pages}",
-                                 callback_data="lb_noop"),
-            InlineKeyboardButton("Next ▶" if page < total_pages - 1 and len(lb) == PZ else "▶",
-                                 callback_data=next_cb),
+            InlineKeyboardButton("⬅️ Prev" if has_prev else "⬅️",
+                                 callback_data=f"lb_{mode}_{page-1}" if has_prev else "lb_noop"),
+            InlineKeyboardButton("🏠 Home",    callback_data="nav_home"),
+            InlineKeyboardButton("📍 My Rank", callback_data=f"lb_myrank_{mode}"),
+            InlineKeyboardButton("➡️ Next" if has_next else "➡️",
+                                 callback_data=f"lb_{mode}_{page+1}" if has_next else "lb_noop"),
         ])
-        rows.append([
-            InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
-            InlineKeyboardButton("🎓 My Stats",  callback_data="my_stats"),
-        ])
-        rows.append(self._nav_row(back_screen="home"))
         kb = InlineKeyboardMarkup(rows)
 
         target = edit_msg or wait_msg
@@ -2249,11 +2354,19 @@ class TelegramQuizBot:
                                          edit_msg=query.message)
 
         elif data == "lb_noop":
-            pass  # page-info button — do nothing
+            pass  # disabled nav button — do nothing
+
+        elif data.startswith("lb_myrank_"):
+            # lb_myrank_global / lb_myrank_weekly / lb_myrank_monthly
+            parts = data.split("_")
+            mode  = parts[2] if len(parts) > 2 else "global"
+            await self._show_my_rank(update, context, mode=mode,
+                                     edit_msg=query.message)
 
         elif data.startswith("lb_"):
-            parts = data.split("_")          # lb_global_0 → ["lb","global","0"]
+            # lb_global_0 / lb_weekly_2 etc.
+            parts = data.split("_")
             mode  = parts[1] if len(parts) > 1 else "global"
-            page  = int(parts[2]) if len(parts) > 2 else 0
+            page  = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
             await self._show_leaderboard(update, context, mode=mode,
                                          page=page, edit_msg=query.message)

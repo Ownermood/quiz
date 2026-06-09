@@ -51,10 +51,17 @@ class DatabaseManager:
             self.questions_col.create_index("category")
             self.users_col.create_index([("user_id", ASCENDING)], unique=True)
             self.users_col.create_index([("xp", DESCENDING)])
+            self.users_col.create_index([("total_marks", DESCENDING)])
             self.users_col.create_index([("correct_answers", DESCENDING)])
             self.users_col.create_index([("last_seen", DESCENDING)])
             self.users_col.create_index([("last_activity", DESCENDING)])
             self.users_col.create_index([("total_answers", DESCENDING)])
+            # Compound index for leaderboard ranking query
+            self.users_col.create_index([
+                ("total_marks", DESCENDING),
+                ("correct_answers", DESCENDING),
+                ("quizzes_attempted", DESCENDING),
+            ])
             self.groups_col.create_index("chat_id", unique=True)
             self.groups_col.create_index([("last_active", DESCENDING)])
             self.poll_map_col.create_index("poll_id", unique=True)
@@ -361,20 +368,68 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"_check_achievements error: {e}")
 
+    # Canonical leaderboard sort order
+    _LB_SORT = [
+        ("total_marks",      DESCENDING),
+        ("correct_answers",  DESCENDING),
+        ("quizzes_attempted", DESCENDING),
+        ("last_activity",    DESCENDING),
+    ]
+
     def get_user_rank(self, user_id: int) -> Dict:
-        """Returns global_rank and total_users for a user based on XP."""
+        """Returns global_rank and total_users based on total_marks ranking."""
         try:
-            user_doc  = self.users_col.find_one({"user_id": user_id}, {"xp": 1}) or {}
-            user_xp   = user_doc.get("xp", 0)
-            rank      = self.users_col.count_documents({"xp": {"$gt": user_xp}}) + 1
-            total     = self.users_col.count_documents({})
-            return {"global_rank": rank, "total_users": total}
+            user_doc = self.users_col.find_one(
+                {"user_id": user_id},
+                {"total_marks": 1, "correct_answers": 1, "quizzes_attempted": 1,
+                 "xp": 1, "current_streak": 1, "total_questions": 1,
+                 "quizzes_completed": 1, "name": 1, "username": 1}) or {}
+            marks = user_doc.get("total_marks", 0)
+            rank  = self.users_col.count_documents({"total_marks": {"$gt": marks}}) + 1
+            total = self.users_col.count_documents({})
+            return {
+                "global_rank":       rank,
+                "total_users":       total,
+                "total_marks":       marks,
+                "correct_answers":   user_doc.get("correct_answers", 0),
+                "quizzes_completed": user_doc.get("quizzes_completed", 0),
+                "total_questions":   user_doc.get("total_questions", 1),
+                "current_streak":    user_doc.get("current_streak", 0),
+                "xp":                user_doc.get("xp", 0),
+            }
         except Exception as e:
             logger.error(f"get_user_rank error: {e}")
             return {"global_rank": 0, "total_users": 0}
 
+    def get_neighbor_ranks(self, user_id: int) -> Dict:
+        """Returns the users ranked just above and below the given user."""
+        try:
+            user_doc = self.users_col.find_one({"user_id": user_id},
+                                               {"total_marks": 1}) or {}
+            marks = user_doc.get("total_marks", 0)
+            rank  = self.users_col.count_documents({"total_marks": {"$gt": marks}}) + 1
+
+            above = below = None
+            if rank > 1:
+                above = self.users_col.find_one(
+                    {"total_marks": {"$gt": marks}},
+                    {"user_id": 1, "name": 1, "username": 1, "total_marks": 1},
+                    sort=self._LB_SORT)
+            below_doc = list(
+                self.users_col.find(
+                    {"total_marks": {"$lt": marks}},
+                    {"user_id": 1, "name": 1, "username": 1, "total_marks": 1})
+                .sort(self._LB_SORT)
+                .limit(1))
+            if below_doc:
+                below = below_doc[0]
+            return {"rank": rank, "above": above, "below": below}
+        except Exception as e:
+            logger.error(f"get_neighbor_ranks error: {e}")
+            return {"rank": 0, "above": None, "below": None}
+
     def get_leaderboard_page(self, mode: str = "global", limit: int = 10, offset: int = 0) -> List[Dict]:
-        """Return paginated leaderboard sorted by XP."""
+        """Return paginated leaderboard sorted by total_marks → correct_answers → quizzes_attempted → last_activity."""
         try:
             if mode in ("weekly", "monthly"):
                 days   = 7 if mode == "weekly" else 30
@@ -384,7 +439,7 @@ class DatabaseManager:
                 query = {}
             return list(
                 self.users_col.find(query, {"_id": 0})
-                .sort([("xp", DESCENDING), ("correct_answers", DESCENDING)])
+                .sort(self._LB_SORT)
                 .skip(offset)
                 .limit(limit)
             )
