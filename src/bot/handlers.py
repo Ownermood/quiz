@@ -177,6 +177,89 @@ class TelegramQuizBot:
         self.application: Optional[Application] = None
         self._dev                     = None
         self._del_page: dict          = {}
+        self._active_msg: dict        = {}   # user_id -> Message object
+        self._nav_history: dict       = {}   # user_id -> list of screen names
+
+    # ─── Navigation helpers ───────────────────────────────────
+
+    def _nav_push(self, user_id: int, screen: str):
+        """Push current screen to history before navigating away."""
+        hist = self._nav_history.setdefault(user_id, [])
+        if not hist or hist[-1] != screen:
+            hist.append(screen)
+        if len(hist) > 10:
+            hist.pop(0)
+
+    def _nav_pop(self, user_id: int) -> str:
+        """Pop and return previous screen, or 'home' if empty."""
+        hist = self._nav_history.get(user_id, [])
+        if len(hist) > 1:
+            hist.pop()          # remove current
+            return hist[-1]     # return previous (don't pop it, so Back works repeatedly)
+        return "home"
+
+    def _nav_clear(self, user_id: int):
+        """Clear history (for Home button)."""
+        self._nav_history[user_id] = ["home"]
+
+    async def _smart_edit(self, update, text: str, kb, edit_msg=None):
+        """
+        Edit edit_msg if provided. Otherwise try active_msg for user.
+        If all fails, send new message and store it.
+        """
+        from telegram.error import BadRequest as BR
+        user   = update.effective_user
+        target = edit_msg
+
+        if target is None and user:
+            target = self._active_msg.get(user.id)
+
+        if target:
+            try:
+                await target.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                if user:
+                    self._active_msg[user.id] = target
+                return target
+            except BR as e:
+                if "not modified" in str(e).lower():
+                    return target      # same content, fine
+                # message deleted/too old — fall through to send new
+            except Exception:
+                pass   # fall through
+
+        msg = await self._reply(update, text, reply_markup=kb)
+        if msg and user:
+            self._active_msg[user.id] = msg
+        return msg
+
+    @staticmethod
+    def _nav_row(back_screen: str = None) -> list:
+        """Returns [Home, Back] button row."""
+        row = [InlineKeyboardButton("🏠 Home", callback_data="nav_home")]
+        if back_screen:
+            row.append(InlineKeyboardButton("⬅️ Back", callback_data="nav_back"))
+        return row
+
+    async def _render_screen(self, update, context, screen: str, edit_msg=None):
+        """Render a named screen into edit_msg."""
+        if screen in ("home", "start"):
+            await self.cmd_start(update, context, edit_msg=edit_msg)
+        elif screen == "stats":
+            await self.cmd_stats(update, context, edit_msg=edit_msg)
+        elif screen == "score":
+            await self.cmd_score(update, context, edit_msg=edit_msg)
+        elif screen == "help":
+            await self.cmd_help(update, context, edit_msg=edit_msg)
+        elif screen == "achievements":
+            await self.cmd_achievements(update, context, edit_msg=edit_msg)
+        elif screen == "leaderboard":
+            await self._show_leaderboard(update, context, mode="global", page=0, edit_msg=edit_msg)
+        elif screen == "categories":
+            await self.cmd_categories(update, context, edit_msg=edit_msg)
+        elif screen == "info":
+            await self.cmd_info(update, context, edit_msg=edit_msg)
+        else:
+            await self.cmd_start(update, context, edit_msg=edit_msg)
 
     # ─── Initialization ──────────────────────────────────────
 
@@ -477,11 +560,16 @@ class TelegramQuizBot:
 
     # ─── /start ──────────────────────────────────────────────
 
-    async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        edit_msg=None):
         user    = update.effective_user
         name    = UI.display_name(user)
         mention = UI.mention(user.id, name)
         is_pm   = update.effective_chat.type == "private"
+
+        # Reset nav history to home
+        if user:
+            self._nav_clear(user.id)
 
         try:
             bot_info   = await self.application.bot.get_me()
@@ -497,17 +585,24 @@ class TelegramQuizBot:
             [InlineKeyboardButton("🎓 Join CLAT Vision",  url="https://t.me/CLAT_Vision")],
         ])
 
-        if is_pm:
-            # Reveal animation
-            msg = await self._reply(update, "🌸")
+        text = self._build_greeting(mention, bot_inline)
+
+        if edit_msg:
+            # Navigating back to home — edit existing message
+            result = await self._smart_edit(update, text, kb, edit_msg=edit_msg)
+        elif is_pm:
+            # Reveal animation for fresh /start in PM
+            result = await self._reply(update, "🌸")
             await asyncio.sleep(0.3)
-            await self._edit(msg, "🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓")
+            await self._edit(result, "🎓  <b>𝐂𝐋𝐀𝐓 𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓")
             await asyncio.sleep(0.35)
-            text = self._build_greeting(mention, bot_inline)
-            await self._edit(msg, text, kb)
+            await self._edit(result, text, kb)
         else:
-            text = self._build_greeting(mention, bot_inline)
-            await self._reply(update, text, reply_markup=kb)
+            result = await self._reply(update, text, reply_markup=kb)
+
+        # Store as active message for this user
+        if user and result:
+            self._active_msg[user.id] = result
 
         # Register user in DB
         if self.db:
@@ -524,7 +619,8 @@ class TelegramQuizBot:
 
     # ─── /help ───────────────────────────────────────────────
 
-    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       edit_msg=None):
         is_owner = self._is_owner(update.effective_user.id) if update.effective_user else False
 
         text = (
@@ -584,15 +680,17 @@ class TelegramQuizBot:
             f"⚡  {COMMUNITY}  ·  CLAT 2027"
         )
 
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎓 Play Quiz",   callback_data="play_quiz"),
-            InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard"),
-        ]])
-        await self._reply(update, text, reply_markup=kb)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎓 Play Quiz",   callback_data="play_quiz"),
+             InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard")],
+            self._nav_row(back_screen="home"),
+        ])
+        await self._smart_edit(update, text, kb, edit_msg=edit_msg)
 
     # ─── /categories ─────────────────────────────────────────
 
-    async def cmd_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                              edit_msg=None):
         text = (
             f"📚  <b>𝗩𝗜𝗘𝗪 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦</b>\n"
             f"══════════════════\n\n"
@@ -612,11 +710,12 @@ class TelegramQuizBot:
             f"🎯  Stay tuned! More quizzes coming soon!\n"
             f"🛠  Need help? Use /help for more commands!"
         )
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎓 Start Quiz", callback_data="play_quiz"),
-            InlineKeyboardButton("🎓 Commands",   callback_data="help"),
-        ]])
-        await self._reply(update, text, reply_markup=kb)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎓 Start Quiz", callback_data="play_quiz"),
+             InlineKeyboardButton("🎓 Commands",   callback_data="help")],
+            self._nav_row(back_screen="home"),
+        ])
+        await self._smart_edit(update, text, kb, edit_msg=edit_msg)
 
     # ─── /ping ───────────────────────────────────────────────
 
@@ -649,7 +748,8 @@ class TelegramQuizBot:
 
     # ─── /info ───────────────────────────────────────────────
 
-    async def cmd_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       edit_msg=None):
         chat    = update.effective_chat
         q_count = len(self.quiz_manager.questions)
 
@@ -679,7 +779,8 @@ class TelegramQuizBot:
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"⚡  {COMMUNITY}  ·  CLAT 2027"
         )
-        await self._reply(update, text)
+        kb = InlineKeyboardMarkup([self._nav_row(back_screen="home")])
+        await self._smart_edit(update, text, kb, edit_msg=edit_msg)
 
     # ─── /quiz ───────────────────────────────────────────────
 
@@ -830,7 +931,8 @@ class TelegramQuizBot:
 
     # ─── /score ──────────────────────────────────────────────
 
-    async def cmd_score(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_score(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        edit_msg=None):
         import math as _math
         user    = update.effective_user
         mention = UI.mention(user.id, UI.display_name(user))
@@ -901,16 +1003,27 @@ class TelegramQuizBot:
              InlineKeyboardButton("🎓 Full Stats",     callback_data="my_stats")],
             [InlineKeyboardButton("🎓 Achievements",   callback_data="achievements"),
              InlineKeyboardButton("🎓 Leaderboard",    callback_data="leaderboard")],
+            self._nav_row(back_screen="home"),
         ])
-        await self._reply(update, text, reply_markup=kb)
+        await self._smart_edit(update, text, kb, edit_msg=edit_msg)
 
     # ─── /stats ──────────────────────────────────────────────
 
-    async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        edit_msg=None):
         user    = update.effective_user
         mention = UI.mention(user.id, UI.display_name(user))
 
-        msg = await self._reply(update, "📊 <i>Crunching your analytics...</i>")
+        if edit_msg:
+            # Edit the existing message with loading indicator
+            try:
+                await edit_msg.edit_text("📊 <i>Crunching your analytics...</i>",
+                                         parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+            msg = edit_msg
+        else:
+            msg = await self._reply(update, "📊 <i>Crunching your analytics...</i>")
         await asyncio.sleep(0.4)
 
         db_doc = {}
@@ -997,18 +1110,22 @@ class TelegramQuizBot:
             for ins in insights:
                 text += f"• {ins}\n"
 
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎓 Play Quiz",     callback_data="play_quiz"),
-            InlineKeyboardButton("🎓 Leaderboard",   callback_data="leaderboard"),
-        ]])
-        if msg:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎓 Play Quiz",     callback_data="play_quiz"),
+             InlineKeyboardButton("🎓 Leaderboard",   callback_data="leaderboard")],
+            self._nav_row(back_screen="home"),
+        ])
+        if edit_msg:
+            await self._smart_edit(update, text, kb, edit_msg=edit_msg)
+        elif msg:
             await self._edit(msg, text, kb)
         else:
-            await self._reply(update, text, reply_markup=kb)
+            await self._smart_edit(update, text, kb)
 
     # ─── /achievements ───────────────────────────────────────
 
-    async def cmd_achievements(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def cmd_achievements(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                edit_msg=None):
         user    = update.effective_user
         mention = UI.mention(user.id, UI.display_name(user))
 
@@ -1060,11 +1177,12 @@ class TelegramQuizBot:
             f"{UI.LINE}\n"
             f"Keep playing to unlock more! 🎓"
         )
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎓 Play Quiz",  callback_data="play_quiz"),
-            InlineKeyboardButton("🎓 My Score",   callback_data="my_stats"),
-        ]])
-        await self._reply(update, text, reply_markup=kb)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎓 Play Quiz",  callback_data="play_quiz"),
+             InlineKeyboardButton("🎓 My Score",   callback_data="my_stats")],
+            self._nav_row(back_screen="home"),
+        ])
+        await self._smart_edit(update, text, kb, edit_msg=edit_msg)
 
     # ─── /botstats ───────────────────────────────────────────
 
@@ -1376,6 +1494,7 @@ class TelegramQuizBot:
             InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
             InlineKeyboardButton("🎓 My Stats",  callback_data="my_stats"),
         ])
+        rows.append(self._nav_row(back_screen="home"))
         kb = InlineKeyboardMarkup(rows)
 
         target = edit_msg or wait_msg
@@ -2094,15 +2213,40 @@ class TelegramQuizBot:
         query = update.callback_query
         await query.answer()
         data  = query.data
+        uid   = update.effective_user.id if update.effective_user else None
 
-        if   data == "play_quiz":    await self.cmd_quiz(update, context)
-        elif data == "my_stats":     await self.cmd_stats(update, context)
-        elif data == "achievements": await self.cmd_achievements(update, context)
-        elif data == "help":         await self.cmd_help(update, context)
-        elif data == "back_start":   await self.cmd_start(update, context)
+        if data == "play_quiz":
+            # Quiz sends a poll — do NOT edit the current message
+            await self.cmd_quiz(update, context)
+
+        elif data == "my_stats":
+            if uid: self._nav_push(uid, "stats")
+            await self.cmd_stats(update, context, edit_msg=query.message)
+
+        elif data == "achievements":
+            if uid: self._nav_push(uid, "achievements")
+            await self.cmd_achievements(update, context, edit_msg=query.message)
+
+        elif data == "help":
+            if uid: self._nav_push(uid, "help")
+            await self.cmd_help(update, context, edit_msg=query.message)
+
+        elif data == "back_start":
+            if uid: self._nav_clear(uid)
+            await self.cmd_start(update, context, edit_msg=query.message)
+
+        elif data == "nav_home":
+            if uid: self._nav_clear(uid)
+            await self.cmd_start(update, context, edit_msg=query.message)
+
+        elif data == "nav_back":
+            prev = self._nav_pop(uid) if uid else "home"
+            await self._render_screen(update, context, prev, edit_msg=query.message)
 
         elif data == "leaderboard":
-            await self._show_leaderboard(update, context, mode="global", page=0)
+            if uid: self._nav_push(uid, "leaderboard")
+            await self._show_leaderboard(update, context, mode="global", page=0,
+                                         edit_msg=query.message)
 
         elif data == "lb_noop":
             pass  # page-info button — do nothing
