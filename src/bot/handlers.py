@@ -1194,139 +1194,193 @@ class TelegramQuizBot:
 
     # ─── /leaderboard ────────────────────────────────────────
 
+    _LB_PAGE_SIZE  = 10
+    _LB_MAX        = 50   # top 50 only
+
     async def cmd_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await self._show_leaderboard(update, context, mode="global")
+        await self._show_leaderboard(update, context, mode="global", page=0)
 
     async def _show_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
-                                mode: str = "global", edit_msg=None):
-        """
-        mode: 'global' | 'weekly' | 'monthly' | 'group'
-        edit_msg: message to edit (for callback updates)
-        """
-        chat      = update.effective_chat
-        thread_id = get_thread_id(update)
-        is_group  = chat.type in ("group", "supergroup")
+                                mode: str = "global", page: int = 0, edit_msg=None):
+        PZ   = self._LB_PAGE_SIZE
+        MAX  = self._LB_MAX
+        chat = update.effective_chat
+        user = update.effective_user
+        is_group = chat.type in ("group", "supergroup")
 
-        # Show initial loading only when not editing
         if edit_msg is None:
             wait_msg = await self._reply(update, "🏆 <i>Loading rankings...</i>")
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.25)
         else:
             wait_msg = None
 
-        # Determine leaderboard data source
         if is_group and mode == "global":
             mode = "group"
 
-        if mode == "group":
-            data    = self.quiz_manager.get_group_leaderboard(chat.id)
-            lb      = data.get("leaderboard", [])
-            total_q = data.get("total_quizzes", 0)
-            acc_g   = data.get("group_accuracy", 0)
-            title   = f"🏆 <b>GROUP LEADERBOARD</b>"
-            footer  = f"\n  Attempts: <b>{total_q}</b>  ·  Group accuracy: <b>{acc_g}%</b>"
-        elif mode == "weekly" and self.db:
-            lb      = self.db.get_leaderboard_page(mode="weekly", limit=10)
-            title   = "🏆 <b>WEEKLY LEADERBOARD</b>  <i>(last 7 days)</i>"
-            footer  = ""
-        elif mode == "monthly" and self.db:
-            lb      = self.db.get_leaderboard_page(mode="monthly", limit=10)
-            title   = "🏆 <b>MONTHLY LEADERBOARD</b>  <i>(last 30 days)</i>"
-            footer  = ""
-        elif self.db:
-            lb      = self.db.get_leaderboard_page(mode="global", limit=10)
-            title   = "🏆 <b>GLOBAL LEADERBOARD</b>  <i>(all time)</i>"
-            footer  = ""
-        else:
-            lb      = self.quiz_manager.get_leaderboard()
-            title   = "🏆 <b>GLOBAL LEADERBOARD</b>  <i>(all time)</i>"
-            footer  = ""
+        offset = page * PZ
 
+        # ── Fetch data ────────────────────────────────────────
+        if mode == "group":
+            raw      = self.quiz_manager.get_group_leaderboard(chat.id)
+            all_lb   = raw.get("leaderboard", [])
+            lb       = all_lb[offset:offset + PZ]
+            total_e  = min(len(all_lb), MAX)
+            h_title  = "𝐆𝐑𝐎𝐔𝐏  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒"
+            sub_line = (f"  👥  Attempts: <b>{raw.get('total_quizzes',0)}</b>"
+                        f"  ·  Accuracy: <b>{raw.get('group_accuracy',0)}%</b>")
+        elif self.db:
+            lb       = self.db.get_leaderboard_page(mode=mode if mode != "group" else "global",
+                                                    limit=PZ, offset=offset)
+            total_e  = min(self.db.users_col.count_documents({}), MAX)
+            titles   = {"global": "𝐆𝐋𝐎𝐁𝐀𝐋  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒",
+                        "weekly": "𝐖𝐄𝐄𝐊𝐋𝐘  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒",
+                        "monthly": "𝐌𝐎𝐍𝐓𝐇𝐋𝐘  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒"}
+            h_title  = titles.get(mode, "𝐆𝐋𝐎𝐁𝐀𝐋  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒")
+            sub_line = ""
+        else:
+            all_lb   = self.quiz_manager.get_leaderboard()
+            lb       = all_lb[offset:offset + PZ]
+            total_e  = min(len(all_lb), MAX)
+            h_title  = "𝐆𝐋𝐎𝐁𝐀𝐋  𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒"
+            sub_line = ""
+
+        total_pages = max(1, (total_e + PZ - 1) // PZ)
+        page        = min(page, total_pages - 1)
+
+        # ── Empty state ───────────────────────────────────────
         if not lb:
             text = (
-                f"🏆 <b>LEADERBOARD</b>\n"
-                f"{UI.LINE}\n\n"
-                "  No scores yet — be the first! 🥇\n\n"
-                "  Use /quiz to start playing."
+                f"╔══════════════════════════════════════╗\n"
+                f"║      🏆  <b>{h_title}</b>      ║\n"
+                f"╚══════════════════════════════════════╝\n\n"
+                f"  No scores yet — be the first! 🥇\n\n"
+                f"  Use /quiz to start playing."
             )
-            if edit_msg:
-                await self._edit(edit_msg, text)
-            elif wait_msg:
-                await self._edit(wait_msg, text)
+            target = edit_msg or wait_msg
+            if target:
+                await self._edit(target, text)
+            else:
+                await self._reply(update, text)
             return
 
-        top_score = lb[0].get("xp", lb[0].get("correct_answers", lb[0].get("score", 1))) or 1
-        lines = [f"{title}\n{UI.LINE}\n"]
+        # ── Bulk-fetch display names ──────────────────────────
+        uids     = [e.get("user_id") for e in lb if e.get("user_id")]
+        name_map = {}
+        if self.db and uids:
+            try:
+                docs = self.db.users_col.find(
+                    {"user_id": {"$in": uids}},
+                    {"user_id": 1, "name": 1, "username": 1})
+                for d in docs:
+                    uid = d.get("user_id")
+                    name_map[uid] = (d.get("name") or d.get("username") or
+                                     f"User{str(uid)[-4:]}")
+            except Exception:
+                pass
 
-        for i, entry in enumerate(lb[:10]):
-            uid   = entry.get("user_id")
-            xp    = entry.get("xp", 0)
-            score = entry.get("correct_answers", entry.get("score", 0))
-            acc   = entry.get("accuracy", 0)
-            level = entry.get("level", 1)
-            pos   = i + 1
+        top_xp = max((e.get("xp", e.get("score", 1)) for e in lb), default=1) or 1
 
-            # Resolve display name
-            display = f"User {str(uid)[-4:]}"
-            if uid == OWNER_ID:
-                display = OWNER_NAME
-            elif self.db:
-                try:
-                    doc = self.db.users_col.find_one(
-                        {"user_id": uid}, {"name": 1, "username": 1})
-                    if doc:
-                        display = (doc.get("name") or doc.get("username") or display)[:22]
-                except Exception:
-                    pass
+        # ── Build message ─────────────────────────────────────
+        lines = [
+            f"╔══════════════════════════════════════╗",
+            f"║     🏆  <b>{h_title}</b>  🏆     ║",
+            f"╚══════════════════════════════════════╝",
+            f"  📄  Page <b>{page + 1}</b> / <b>{total_pages}</b>"
+            f"  ·  🏅 Top <b>{MAX}</b>",
+        ]
+        if sub_line:
+            lines.append(sub_line)
+        lines.append("")
 
+        for i, entry in enumerate(lb):
+            uid     = entry.get("user_id")
+            xp      = entry.get("xp", entry.get("score", 0))
+            correct = entry.get("correct_answers", entry.get("score", 0))
+            total_q = entry.get("total_questions", 1) or 1
+            level   = entry.get("level", 1)
+            acc     = round(correct / total_q * 100, 1) if total_q > 0 else 0
+            pos     = offset + i + 1
+
+            raw_name = (name_map.get(uid) or
+                        (OWNER_NAME if uid == OWNER_ID else f"User{str(uid)[-4:]}"))
+            display  = raw_name[:18] + "…" if len(raw_name) > 18 else raw_name
             mention  = UI.mention(uid, display)
-            top_val  = top_score if top_score > 0 else 1
-            fill     = max(0, min(10, int(xp / top_val * 10)))
-            bar      = "█" * fill + "░" * (10 - fill)
 
-            if pos <= 3:
-                medal = UI.MEDALS[i]
+            bar_fill = max(0, min(10, int(xp / top_xp * 10)))
+            bar      = "█" * bar_fill + "░" * (10 - bar_fill)
+
+            if pos == 1:
+                lines += [f"🥇  {mention}  <b>Lv.{level}</b>",
+                          f"    [{bar}]  ⚡ <b>{xp} XP</b>  ·  🎯 {acc}%"]
+            elif pos == 2:
+                lines += [f"🥈  {mention}  <b>Lv.{level}</b>",
+                          f"    [{bar}]  ⚡ <b>{xp} XP</b>  ·  🎯 {acc}%"]
+            elif pos == 3:
+                lines += [f"🥉  {mention}  <b>Lv.{level}</b>",
+                          f"    [{bar}]  ⚡ <b>{xp} XP</b>  ·  🎯 {acc}%"]
+            elif pos <= 10:
                 lines.append(
-                    f"{medal}  {mention}  <i>Lv.{level}</i>\n"
-                    f"    [{bar}]  <b>{xp} XP</b>  <i>{score} correct</i>"
-                )
+                    f"  <b>{pos:2d}.</b>  {mention}"
+                    f"  —  ⚡ <b>{xp}</b>  Lv.<b>{level}</b>  🎯 {acc}%")
             else:
                 lines.append(
-                    f"  <b>{pos:2d}.</b>  {mention}  —  <b>{xp} XP</b>  <i>Lv.{level}</i>"
-                )
+                    f"  {pos:2d}.  {mention}"
+                    f"  ⚡{xp}  L{level}  {acc}%")
 
-        if footer:
-            lines.append(f"\n{UI.THIN}{footer}")
+        # ── Your rank footer ──────────────────────────────────
+        if user and self.db and mode != "group":
+            try:
+                rank_info = self.db.get_user_rank(user.id)
+                udoc      = self.db.users_col.find_one(
+                    {"user_id": user.id}, {"xp": 1})
+                u_xp   = udoc.get("xp", 0) if udoc else 0
+                u_rank = rank_info.get("global_rank", "?")
+                lines += [f"\n{UI.LINE}",
+                          f"  👤  Your Rank: <b>#{u_rank}</b>"
+                          f"  ·  ⚡ <b>{u_xp} XP</b>"]
+            except Exception:
+                pass
 
-        lines.append(f"\n{UI.LINE}\n  <i>Play /quiz to climb the ranks!</i>")
+        lines += [f"\n{UI.LINE}",
+                  f"  🎓  <i>Keep playing to rise higher!</i>"]
         text = "\n".join(lines)
 
-        # Leaderboard tab buttons
-        if is_group or mode == "group":
-            kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
-                InlineKeyboardButton("🎓 My Stats",  callback_data="my_stats"),
-            ]])
-        else:
-            global_btn  = InlineKeyboardButton(
-                "🎓 Global ✓" if mode == "global"  else "🎓 Global",
-                callback_data="lb_global")
-            weekly_btn  = InlineKeyboardButton(
-                "🎓 Weekly ✓" if mode == "weekly"  else "🎓 Weekly",
-                callback_data="lb_weekly")
-            monthly_btn = InlineKeyboardButton(
-                "🎓 Monthly ✓" if mode == "monthly" else "🎓 Monthly",
-                callback_data="lb_monthly")
-            kb = InlineKeyboardMarkup([
-                [global_btn, weekly_btn, monthly_btn],
-                [InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
-                 InlineKeyboardButton("🎓 My Stats",  callback_data="my_stats")],
+        # ── Keyboard ──────────────────────────────────────────
+        rows = []
+
+        if mode != "group":
+            rows.append([
+                InlineKeyboardButton(
+                    "🎓 Global ✓" if mode == "global" else "🎓 Global",
+                    callback_data="lb_global_0"),
+                InlineKeyboardButton(
+                    "🎓 Weekly ✓" if mode == "weekly" else "🎓 Weekly",
+                    callback_data="lb_weekly_0"),
+                InlineKeyboardButton(
+                    "🎓 Monthly ✓" if mode == "monthly" else "🎓 Monthly",
+                    callback_data="lb_monthly_0"),
             ])
 
-        if edit_msg:
-            await self._edit(edit_msg, text, kb)
-        elif wait_msg:
-            await self._edit(wait_msg, text, kb)
+        prev_cb = f"lb_{mode}_{page - 1}" if page > 0 else "lb_noop"
+        next_cb = (f"lb_{mode}_{page + 1}"
+                   if page < total_pages - 1 and len(lb) == PZ else "lb_noop")
+        rows.append([
+            InlineKeyboardButton("◀ Prev" if page > 0 else "◀",
+                                 callback_data=prev_cb),
+            InlineKeyboardButton(f"📄 {page + 1}/{total_pages}",
+                                 callback_data="lb_noop"),
+            InlineKeyboardButton("Next ▶" if page < total_pages - 1 and len(lb) == PZ else "▶",
+                                 callback_data=next_cb),
+        ])
+        rows.append([
+            InlineKeyboardButton("🎓 Play Quiz", callback_data="play_quiz"),
+            InlineKeyboardButton("🎓 My Stats",  callback_data="my_stats"),
+        ])
+        kb = InlineKeyboardMarkup(rows)
+
+        target = edit_msg or wait_msg
+        if target:
+            await self._edit(target, text, kb)
         else:
             await self._reply(update, text, reply_markup=kb)
 
@@ -2048,16 +2102,14 @@ class TelegramQuizBot:
         elif data == "back_start":   await self.cmd_start(update, context)
 
         elif data == "leaderboard":
-            await self._show_leaderboard(update, context, mode="global")
+            await self._show_leaderboard(update, context, mode="global", page=0)
 
-        elif data == "lb_global":
-            await self._show_leaderboard(update, context, mode="global",
-                                         edit_msg=query.message)
+        elif data == "lb_noop":
+            pass  # page-info button — do nothing
 
-        elif data == "lb_weekly":
-            await self._show_leaderboard(update, context, mode="weekly",
-                                         edit_msg=query.message)
-
-        elif data == "lb_monthly":
-            await self._show_leaderboard(update, context, mode="monthly",
-                                         edit_msg=query.message)
+        elif data.startswith("lb_"):
+            parts = data.split("_")          # lb_global_0 → ["lb","global","0"]
+            mode  = parts[1] if len(parts) > 1 else "global"
+            page  = int(parts[2]) if len(parts) > 2 else 0
+            await self._show_leaderboard(update, context, mode=mode,
+                                         page=page, edit_msg=query.message)
