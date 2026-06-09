@@ -1611,11 +1611,7 @@ class TelegramQuizBot:
             lines += ["", "👑  <b>𝐂𝐇𝐀𝐌𝐏𝐈𝐎𝐍𝐒</b>", ""]
             for i, entry in enumerate(top3):
                 pts = entry.get("correct_answers", entry.get("score", 0))
-                lines += [
-                    f"{'🥇🥈🥉'[i]} {_mention(entry)}",
-                    f"⭐ <b>{pts}</b> Points",
-                    "",
-                ]
+                lines += [f"{'🥇🥈🥉'[i]} {_mention(entry)} ⭐ <b>{pts}</b> Points", ""]
 
             if rest:
                 lines += [SEP, "", "🏅  <b>𝐓𝐎𝐏 𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒</b>", ""]
@@ -1623,22 +1619,14 @@ class TelegramQuizBot:
                     pos = 4 + i
                     pts = entry.get("correct_answers", entry.get("score", 0))
                     num = self._LB_NUM.get(pos, f"<b>{pos}.</b>")
-                    lines += [
-                        f"{num} {_mention(entry)}",
-                        f"⭐ <b>{pts}</b> Points",
-                        "",
-                    ]
+                    lines += [f"{num} {_mention(entry)} ⭐ <b>{pts}</b> Points", ""]
         else:
             lines += ["", f"🏅  <b>𝐑𝐀𝐍𝐊𝐈𝐍𝐆𝐒</b>  •  <i>#{start + 1}–#{end}</i>", ""]
             for i, entry in enumerate(page_slice):
                 pos   = start + i + 1
                 pts   = entry.get("correct_answers", entry.get("score", 0))
                 badge = self._lb_badge(pos)
-                lines += [
-                    f"{badge} <b>#{pos}</b>  {_mention(entry)}",
-                    f"⭐ <b>{pts}</b> Points",
-                    "",
-                ]
+                lines += [f"{badge} <b>#{pos}</b>  {_mention(entry)} ⭐ <b>{pts}</b> Points", ""]
 
         # ── Badge legend + page indicator ─────────────────────
         lines += [
@@ -1648,7 +1636,8 @@ class TelegramQuizBot:
             "",
             SEP,
             "",
-            f"📄 Page {page} / {total_pages} • Updated Live",
+            f"📄 Page {page} / {total_pages}",
+            f"⚡ Updated Live From Database",
         ]
         text = "\n".join(lines)
 
@@ -1658,6 +1647,8 @@ class TelegramQuizBot:
             await self._edit(target, text, kb)
         else:
             await self._reply(update, text, reply_markup=kb)
+        if wait_msg and req_user:
+            self._active_msg[req_user.id] = wait_msg
 
     def _build_lb_keyboard(self, mode: str, page: int, total_pages: int,
                            is_group: bool) -> InlineKeyboardMarkup:
