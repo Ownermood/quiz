@@ -1,9 +1,4 @@
-"""
-Flask web app for CLAT Vision Quiz Bot.
-BUG FIX: create_app() now accepts an injected db_manager so it reuses the
-existing DatabaseManager instead of creating a second connection.
-New routes: /api/metrics, /api/users, /api/broadcast, /api/reload
-"""
+"""Flask web app for CLAT Vision Quiz Bot."""
 
 import os
 import logging
@@ -18,49 +13,40 @@ logger = logging.getLogger(__name__)
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
+# ── Flask app created once at import time ─────────────────────────────────────
+app = Flask(
+    __name__,
+    template_folder=os.path.join(root_dir, 'templates'),
+    static_folder=os.path.join(root_dir, 'static'),
+)
+app.secret_key = os.environ.get("SESSION_SECRET", "fallback_secret_dev")
+
 # Module-level singletons
-quiz_manager  = None
-telegram_bot  = None
-db_manager    = None
-event_loop    = None
-loop_thread   = None
+quiz_manager   = None
+telegram_bot   = None
+db_manager     = None
+event_loop     = None
 app_start_time = datetime.now()
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def run_coroutine_threadsafe(coro, loop):
     if loop and loop.is_running():
         future = asyncio.run_coroutine_threadsafe(coro, loop)
-
-        def done_callback(fut):
+        def _cb(fut):
             try:
                 fut.result()
             except Exception as e:
                 logger.error(f"Update processing error: {e}", exc_info=True)
-
-        future.add_done_callback(done_callback)
+        future.add_done_callback(_cb)
     else:
-        logger.error("Event loop not running, cannot process update")
+        logger.error("Event loop not running — cannot process update")
 
 
 def create_app(injected_db=None, injected_quiz=None):
-    """
-    Flask app factory.
-    BUG FIX: accepts pre-built db/quiz managers so we don't open a second
-    MongoDB connection when both the bot and Flask share the same process.
-    """
+    """Set shared managers. Returns the already-created Flask app."""
     global quiz_manager, db_manager
-
-    session_secret = os.environ.get("SESSION_SECRET", "fallback_secret_dev")
-
-    flask_app = Flask(
-        __name__,
-        template_folder=os.path.join(root_dir, 'templates'),
-        static_folder=os.path.join(root_dir, 'static')
-    )
-    flask_app.secret_key = session_secret
-
-    # Use injected managers (polling mode) or create new ones (standalone)
     if injected_db:
         db_manager   = injected_db
         quiz_manager = injected_quiz
@@ -72,50 +58,16 @@ def create_app(injected_db=None, injected_quiz=None):
             quiz_manager = QuizManager(db_manager=db_manager)
             logger.info("QuizManager initialized in Flask app factory")
         except Exception as e:
-            logger.error(f"Failed to initialize managers in app factory: {e}")
+            logger.error(f"Failed to initialize managers: {e}")
             raise
+    return app
 
-    return flask_app
-
-
-# ── Deferred proxy ────────────────────────────────────────────────────────────
-
-class _AppProxy:
-    """Proxy that defers Flask app creation until first use."""
-
-    def __init__(self):
-        self._real_app = None
-        self._deferred = []
-
-    def _get_real_app(self):
-        if self._real_app is None:
-            self._real_app = create_app()
-            for method, args, kwargs, func in self._deferred:
-                getattr(self._real_app, method)(*args, **kwargs)(func)
-            self._deferred.clear()
-        return self._real_app
-
-    def route(self, *args, **kwargs):
-        def decorator(func):
-            self._deferred.append(('route', args, kwargs, func))
-            return func
-        return decorator
-
-    def __call__(self, environ, start_response):
-        return self._get_real_app()(environ, start_response)
-
-    def __getattr__(self, name):
-        return getattr(self._get_real_app(), name)
-
-
-app = _AppProxy()
-
-
-# ── Webhook bot helpers ───────────────────────────────────────────────────────
 
 def get_app():
-    return app._get_real_app()
+    return app
 
+
+# ── Bot lifecycle (webhook mode) ──────────────────────────────────────────────
 
 async def _bot_lifecycle():
     global telegram_bot
@@ -132,6 +84,7 @@ async def _bot_lifecycle():
     q_mgr     = QuizManager(db_manager=db_mgr)
     bot       = TelegramQuizBot(q_mgr, db_manager=db_mgr)
 
+    # Share managers with Flask routes
     create_app(injected_db=db_mgr, injected_quiz=q_mgr)
 
     webhook_url = os.environ.get("WEBHOOK_URL", "")
@@ -143,14 +96,15 @@ async def _bot_lifecycle():
     telegram_bot = bot
     logger.info("✅ Telegram bot ready")
 
-    await asyncio.Event().wait()
+    await asyncio.Event().wait()  # keep loop alive forever
 
 
 def init_bot_webhook(webhook_url: str):
+    """Non-blocking: starts bot in a background daemon thread."""
     global event_loop
 
     new_loop   = asyncio.new_event_loop()
-    event_loop = new_loop
+    event_loop = new_loop  # set before thread starts
 
     def _run():
         asyncio.set_event_loop(new_loop)
@@ -184,7 +138,7 @@ def webhook():
     global telegram_bot, event_loop
     bot_ready  = telegram_bot is not None and telegram_bot.application is not None
     loop_alive = event_loop is not None and event_loop.is_running()
-    logger.info(f"[WEBHOOK] POST hit — bot_ready={bot_ready} loop_running={loop_alive}")
+    logger.info(f"[WEBHOOK] POST — bot_ready={bot_ready} loop_running={loop_alive}")
     try:
         if not bot_ready:
             logger.error("[WEBHOOK] bot not ready — returning 500")
@@ -194,7 +148,7 @@ def webhook():
         if not update_data:
             return jsonify({'status': 'ok'}), 200
 
-        logger.info(f"[WEBHOOK] update_id={update_data.get('update_id')} type={list(update_data.keys())}")
+        logger.info(f"[WEBHOOK] update_id={update_data.get('update_id')}")
         update = Update.de_json(update_data, telegram_bot.application.bot)
         run_coroutine_threadsafe(
             telegram_bot.application.process_update(update), event_loop)
@@ -211,8 +165,7 @@ def webhook():
 def api_get_questions():
     if not quiz_manager:
         return jsonify({'error': 'Not ready'}), 500
-    qs = quiz_manager.questions  # already formatted with category
-    return jsonify({'questions': qs, 'total': len(qs)})
+    return jsonify({'questions': quiz_manager.questions, 'total': len(quiz_manager.questions)})
 
 
 @app.route('/api/questions', methods=['POST'])
@@ -223,17 +176,14 @@ def api_add_question():
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'No data'}), 400
-
         result = quiz_manager.add_questions([{
             'question':       data['question'],
             'options':        data['options'],
             'correct_answer': int(data['correct_answer']),
             'category':       data.get('category', 'General'),
         }])
-
         added = result.get('added', 0) if isinstance(result, dict) else 0
         if added > 0:
-            # Get new ID from the last added question
             new_id = None
             if quiz_manager.questions:
                 last_q = quiz_manager.questions[-1]
@@ -244,7 +194,6 @@ def api_add_question():
         else:
             errors = result.get('errors', [])
             return jsonify({'success': False, 'error': errors[0] if errors else 'Unknown'}), 500
-
     except KeyError as e:
         return jsonify({'success': False, 'error': f'Missing field: {e}'}), 400
     except Exception as e:
@@ -309,18 +258,12 @@ def api_broadcast():
         message = (data or {}).get('message', '').strip()
         if not message:
             return jsonify({'error': 'Empty message'}), 400
-
         users  = db_manager.get_pm_accessible_users()
         groups = db_manager.get_all_groups()
-        # Return counts (actual sending needs the bot; this is the admin API stub)
         return jsonify({
-            'queued': True,
-            'users':  len(users),
-            'groups': len(groups),
-            'total':  len(users) + len(groups),
-            'sent':   0,
-            'failed': 0,
-            'note':   'Use /broadcast command in Telegram for live sending.'
+            'queued': True, 'users': len(users), 'groups': len(groups),
+            'total': len(users) + len(groups), 'sent': 0, 'failed': 0,
+            'note': 'Use /broadcast command in Telegram for live sending.'
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -339,11 +282,9 @@ def api_reload():
 
 @app.route('/metrics')
 def prometheus_metrics():
-    """Prometheus/plain-text metrics endpoint."""
     try:
         uptime = (datetime.now() - app_start_time).total_seconds()
         lines  = [f"bot_uptime_seconds {uptime:.0f}"]
-
         if db_manager:
             d = db_manager.get_metrics_summary()
             for k, v in d.items():
@@ -351,10 +292,8 @@ def prometheus_metrics():
                     lines.append(f"bot_{k} {float(v):.2f}")
                 except (TypeError, ValueError):
                     pass
-
         if quiz_manager:
             lines.append(f"bot_questions_loaded {len(quiz_manager.questions)}")
-
         return Response('\n'.join(lines) + '\n', mimetype='text/plain')
     except Exception as e:
         return Response(f"# Error: {e}\n", mimetype='text/plain'), 500
