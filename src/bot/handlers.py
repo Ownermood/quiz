@@ -181,6 +181,7 @@ class TelegramQuizBot:
         self._nav_history: dict       = {}
         self._lb_cache: dict          = {}
         self._lb_cache_ttl: int       = 60
+        self._broadcast_sent: list    = []
 
     # ─── Navigation helpers ───────────────────────────────────
 
@@ -341,11 +342,10 @@ class TelegramQuizBot:
             bot_inline = "Miss Quiz 🎓"
 
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❓ Help",             callback_data="help")],
             [InlineKeyboardButton("🎓 Start Quiz",      callback_data="play_quiz"),
              InlineKeyboardButton("🎓 My Profile",        callback_data="my_profile")],
             [InlineKeyboardButton("🎓 Leaderboard",     callback_data="leaderboard"),
-             InlineKeyboardButton("🎓 Commands",        callback_data="help")],
+             InlineKeyboardButton("❓ Help",             callback_data="help")],
             [InlineKeyboardButton("🎓 Join CLAT Vision", url="https://t.me/CLAT_Vision")],
         ])
 
@@ -369,15 +369,7 @@ class TelegramQuizBot:
                 logger.warning(f"[STARTUP] Send to {uid} failed: {e}")
             await asyncio.sleep(0.05)
 
-        logger.info(f"[STARTUP] Sent {len(sent)}, deleting in 30 s")
-        await asyncio.sleep(30)
-        for chat_id, msg_id in sent:
-            try:
-                await self.application.bot.delete_message(
-                    chat_id=chat_id, message_id=msg_id)
-            except Exception:
-                pass
-        logger.info("[STARTUP] Broadcast messages deleted")
+        logger.info(f"[STARTUP] Sent {len(sent)}")
 
     # ─── Greeting builder (shared by /start and broadcast) ───
 
@@ -430,9 +422,10 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("delquiz",     self.cmd_delquiz))
         app.add_handler(CommandHandler("editquiz",    self.cmd_editquiz))
         app.add_handler(CommandHandler("dev",         self.cmd_dev))
-        app.add_handler(CommandHandler("broadcast",   self.cmd_broadcast))
-        app.add_handler(CommandHandler("bc",          self.cmd_broadcast))
-        app.add_handler(CommandHandler("reload",      self.cmd_reload))
+        app.add_handler(CommandHandler("broadcast",     self.cmd_broadcast))
+        app.add_handler(CommandHandler("bc",            self.cmd_broadcast))
+        app.add_handler(CommandHandler("delbroadcast",  self.cmd_delbroadcast))
+        app.add_handler(CommandHandler("reload",        self.cmd_reload))
         app.add_handler(CommandHandler("restart",     self.cmd_restart))
 
         # Poll + Callbacks
@@ -581,11 +574,10 @@ class TelegramQuizBot:
             bot_inline = "Miss Quiz 🎓"
 
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❓ Help",              callback_data="help")],
             [InlineKeyboardButton("🎓 Start Quiz",       callback_data="play_quiz"),
              InlineKeyboardButton("🎓 My Profile",         callback_data="my_profile")],
             [InlineKeyboardButton("🎓 Leaderboard",      callback_data="leaderboard"),
-             InlineKeyboardButton("🎓 Commands",          callback_data="help")],
+             InlineKeyboardButton("❓ Help",              callback_data="help")],
             [InlineKeyboardButton("🎓 Join CLAT Vision",  url="https://t.me/CLAT_Vision")],
         ])
 
@@ -686,7 +678,8 @@ class TelegramQuizBot:
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎓 Play Quiz",   callback_data="play_quiz"),
-             InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard")],
+             InlineKeyboardButton("🎓 Leaderboard", callback_data="leaderboard"),
+             InlineKeyboardButton("ℹ️ Bot Info",    callback_data="info")],
             self._nav_row(back_screen="home"),
         ])
         await self._smart_edit(update, text, kb, edit_msg=edit_msg)
@@ -2124,11 +2117,13 @@ class TelegramQuizBot:
             f"  <i>Sending...</i>"
         )
 
+        self._broadcast_sent.clear()
         sent = failed = 0
         for u in users:
             try:
-                await context.bot.send_message(
+                m = await context.bot.send_message(
                     chat_id=u["user_id"], text=raw, parse_mode=ParseMode.HTML)
+                self._broadcast_sent.append((u["user_id"], m.message_id))
                 sent += 1
                 await asyncio.sleep(0.05)
             except (Forbidden, BadRequest):
@@ -2167,6 +2162,46 @@ class TelegramQuizBot:
                 f"  Sent    ›  <b>{sent}</b>\n"
                 f"  Failed  ›  <b>{failed}</b>\n"
                 f"  Rate    ›  [{UI.bar(rate)}] <b>{rate}%</b>"
+            )
+
+    # ─── /delbroadcast ───────────────────────────────────────
+
+    async def cmd_delbroadcast(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if not self._is_owner(user.id):
+            await self._unauthorized(update)
+            return
+
+        if not self._broadcast_sent:
+            await self._reply(update,
+                "📭 <b>Nothing to delete</b>\n"
+                f"{UI.LINE}\n\n"
+                "No broadcast messages are tracked.\n"
+                "Send a broadcast first with /broadcast."
+            )
+            return
+
+        total_to_del = len(self._broadcast_sent)
+        msg = await self._reply(update,
+            f"🗑 <i>Deleting {total_to_del} broadcast messages...</i>"
+        )
+
+        deleted = failed = 0
+        for chat_id, msg_id in self._broadcast_sent:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                deleted += 1
+            except Exception:
+                failed += 1
+            await asyncio.sleep(0.05)
+
+        self._broadcast_sent.clear()
+        if msg:
+            await self._edit(msg,
+                f"✅ <b>BROADCAST DELETED</b>\n"
+                f"{UI.LINE}\n\n"
+                f"  Deleted  ›  <b>{deleted}</b>\n"
+                f"  Failed   ›  <b>{failed}</b>"
             )
 
     # ─── /reload ─────────────────────────────────────────────
@@ -2452,6 +2487,10 @@ class TelegramQuizBot:
         elif data == "help":
             if uid: self._nav_push(uid, "help")
             await self.cmd_help(update, context, edit_msg=query.message)
+
+        elif data == "info":
+            if uid: self._nav_push(uid, "info")
+            await self.cmd_info(update, context, edit_msg=query.message)
 
         elif data == "back_start":
             if uid: self._nav_clear(uid)
