@@ -262,6 +262,8 @@ class TelegramQuizBot:
             await self.cmd_categories(update, context, edit_msg=edit_msg)
         elif screen == "info":
             await self.cmd_info(update, context, edit_msg=edit_msg)
+        elif screen == "botstats":
+            await self.cmd_botstats(update, context, edit_msg=edit_msg)
         else:
             await self.cmd_start(update, context, edit_msg=edit_msg)
 
@@ -445,9 +447,11 @@ class TelegramQuizBot:
             from src.bot.dev_commands import DeveloperCommands
             if self.db:
                 self._dev = DeveloperCommands(self.db, self.quiz_manager)
-                app.add_handler(CommandHandler("devstats",    self._dev.devstats))
-                app.add_handler(CommandHandler("activity",    self._dev.activity))
-                app.add_handler(CommandHandler("performance", self._dev.performance_stats))
+                app.add_handler(CommandHandler("devstats",           self._dev.devstats))
+                app.add_handler(CommandHandler("activity",           self._dev.activity))
+                app.add_handler(CommandHandler("performance",        self._dev.performance_stats))
+                app.add_handler(CommandHandler("broadcast_confirm",  self._dev.broadcast_confirm))
+                app.add_handler(CommandHandler("delbroadcast_confirm", self._dev.delbroadcast_confirm))
                 app.add_handler(CallbackQueryHandler(
                     self._dev.handle_edit_quiz_callback, pattern="^eq_"))
                 app.add_handler(MessageHandler(
@@ -1571,6 +1575,8 @@ class TelegramQuizBot:
                 await self._edit(target, text, kb)
             else:
                 await self._reply(update, text, reply_markup=kb)
+            if wait_msg and req_user:
+                self._active_msg[req_user.id] = wait_msg
             return
 
         # ── Pagination ────────────────────────────────────────
@@ -1641,10 +1647,12 @@ class TelegramQuizBot:
         target = edit_msg or wait_msg
         if target:
             await self._edit(target, text, kb)
+            if req_user:
+                self._active_msg[req_user.id] = target
         else:
-            await self._reply(update, text, reply_markup=kb)
-        if wait_msg and req_user:
-            self._active_msg[req_user.id] = wait_msg
+            result = await self._reply(update, text, reply_markup=kb)
+            if result and req_user:
+                self._active_msg[req_user.id] = result
 
     def _build_lb_keyboard(self, mode: str, page: int, total_pages: int,
                            is_group: bool) -> InlineKeyboardMarkup:
@@ -2137,14 +2145,16 @@ class TelegramQuizBot:
             try:
                 kwargs = {"chat_id": g["chat_id"], "text": raw, "parse_mode": ParseMode.HTML}
                 if tid: kwargs["message_thread_id"] = tid
-                await context.bot.send_message(**kwargs)
+                gm = await context.bot.send_message(**kwargs)
+                self._broadcast_sent.append((g["chat_id"], gm.message_id))
                 sent += 1
                 await asyncio.sleep(0.05)
             except TelegramError as e:
                 if any(w in str(e).lower() for w in ("topic", "closed", "thread")):
                     try:
-                        await context.bot.send_message(
+                        gm = await context.bot.send_message(
                             chat_id=g["chat_id"], text=raw, parse_mode=ParseMode.HTML)
+                        self._broadcast_sent.append((g["chat_id"], gm.message_id))
                         sent += 1
                     except Exception:
                         failed += 1
@@ -2170,6 +2180,10 @@ class TelegramQuizBot:
         user = update.effective_user
         if not self._is_owner(user.id):
             await self._unauthorized(update)
+            return
+
+        if self._dev and hasattr(self._dev, "delbroadcast"):
+            await self._dev.delbroadcast(update, context)
             return
 
         if not self._broadcast_sent:
