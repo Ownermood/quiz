@@ -253,7 +253,7 @@ class TelegramQuizBot:
         elif screen == "achievements":
             await self.cmd_achievements(update, context, edit_msg=edit_msg)
         elif screen == "leaderboard":
-            await self._show_leaderboard(update, context, mode="global", page=0, edit_msg=edit_msg)
+            await self._show_leaderboard(update, context, mode="global", page=1, edit_msg=edit_msg)
         elif screen == "categories":
             await self.cmd_categories(update, context, edit_msg=edit_msg)
         elif screen == "info":
@@ -2510,29 +2510,6 @@ class TelegramQuizBot:
         elif data == "nav_back":
             prev = self._nav_pop(uid) if uid else "home"
             await self._render_screen(update, context, prev, edit_msg=query.message)
-
-        elif data == "leaderboard":
-            if uid: self._nav_push(uid, "leaderboard")
-            await self._show_leaderboard(update, context, mode="global", page=0,
-                                         edit_msg=query.message)
-
-        elif data == "lb_noop":
-            pass  # disabled nav button — do nothing
-
-        elif data.startswith("lb_myrank_"):
-            # lb_myrank_global / lb_myrank_weekly / lb_myrank_monthly
-            parts = data.split("_")
-            mode  = parts[2] if len(parts) > 2 else "global"
-            await self._show_my_rank(update, context, mode=mode,
-                                     edit_msg=query.message)
-
-        elif data.startswith("lb_"):
-            # lb_global_0 / lb_weekly_2 etc.
-            parts = data.split("_")
-            mode  = parts[1] if len(parts) > 1 else "global"
-            page  = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
-            await self._show_leaderboard(update, context, mode=mode,
-                                         page=page, edit_msg=query.message)
 
         elif data.startswith("bs_"):
             parts = data.split("_", 2)
