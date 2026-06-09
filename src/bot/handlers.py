@@ -637,7 +637,7 @@ class TelegramQuizBot:
             f"│  📛  Name        ›  CLAT Vision Quiz Bot\n"
             f"│  📚  Questions   ›  <b>{q_count}</b>\n"
             f"│  🗄  Database    ›  MongoDB Atlas ✅\n"
-            f"│  👑  Owner       ›  {OWNER_NAME}\n"
+            f"│  👑  Owner       ›  {UI.mention(OWNER_ID, OWNER_NAME)}\n"
             f"╰──────────────────────────────────────╯\n\n"
             f"💬  <b>𝐓𝐇𝐈𝐒  𝐂𝐇𝐀𝐓</b>\n"
             f"╭──────────────────────────────────────╮\n"
@@ -1583,10 +1583,11 @@ class TelegramQuizBot:
         groups = self.db.get_all_groups()
         total  = len(users) + len(groups)
 
+        owner_mention = UI.mention(user.id, OWNER_NAME)
         status = await self._reply(update,
             f"📡 <b>BROADCASTING</b>\n"
             f"{UI.LINE}\n\n"
-            f"  By {OWNER_NAME}\n\n"
+            f"  By {owner_mention}\n\n"
             f"  Users  ›  <b>{len(users)}</b>\n"
             f"  Groups ›  <b>{len(groups)}</b>\n"
             f"  Total  ›  <b>{total}</b>\n\n"
@@ -1684,7 +1685,7 @@ class TelegramQuizBot:
         await self._reply(update,
             f"🔄 <b>RESTARTING</b>\n"
             f"{UI.LINE}\n\n"
-            f"  Initiated by {OWNER_NAME}\n"
+            f"  Initiated by {UI.mention(OWNER_ID, OWNER_NAME)}\n"
             f"  Shutting down gracefully...\n"
             f"  ✅ Back online in seconds!"
         )

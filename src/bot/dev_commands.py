@@ -745,21 +745,25 @@ class DeveloperCommands:
                     )
                     
                     display_name = first_name or username or f"User {user_id}"
+                    dev_mention = f'<a href="tg://user?id={user_id}">{display_name}</a>'
                     reply = await update.message.reply_text(
                         f"✅ Developer added successfully!\n\n"
-                        f"👤 {display_name}\n"
-                        f"🆔 ID: {user_id}"
+                        f"👤 {dev_mention}\n"
+                        f"🆔 ID: {user_id}",
+                        parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
                     logger.warning(f"Could not fetch user info for {user_id}: {e}")
                     # Add without user info
                     self.db.add_developer(user_id, added_by=update.effective_user.id)
+                    dev_mention = f'<a href="tg://user?id={user_id}">User {user_id}</a>'
                     reply = await update.message.reply_text(
                         f"✅ Developer added successfully!\n\n"
-                        f"User ID: {user_id}\n"
-                        f"⚠️ Could not fetch user details"
+                        f"👤 {dev_mention}\n"
+                        f"⚠️ Could not fetch user details",
+                        parse_mode=ParseMode.HTML
                     )
-                
+
                 logger.info(f"Developer {user_id} added by {update.effective_user.id}")
                 await self.auto_clean_message(update.message, reply)
                 return
@@ -794,19 +798,23 @@ class DeveloperCommands:
                         )
                         
                         display_name = first_name or username or f"User {new_dev_id}"
+                        dev_mention = f'<a href="tg://user?id={new_dev_id}">{display_name}</a>'
                         reply = await update.message.reply_text(
                             f"✅ Developer added successfully!\n\n"
-                            f"👤 {display_name}\n"
-                            f"🆔 ID: {new_dev_id}"
+                            f"👤 {dev_mention}\n"
+                            f"🆔 ID: {new_dev_id}",
+                            parse_mode=ParseMode.HTML
                         )
                     except Exception as e:
                         logger.warning(f"Could not fetch user info for {new_dev_id}: {e}")
                         # Add without user info
                         self.db.add_developer(new_dev_id, added_by=update.effective_user.id)
+                        dev_mention = f'<a href="tg://user?id={new_dev_id}">User {new_dev_id}</a>'
                         reply = await update.message.reply_text(
                             f"✅ Developer added successfully!\n\n"
-                            f"User ID: {new_dev_id}\n"
-                            f"⚠️ Could not fetch user details"
+                            f"👤 {dev_mention}\n"
+                            f"⚠️ Could not fetch user details",
+                            parse_mode=ParseMode.HTML
                         )
                     
                     logger.info(f"Developer {new_dev_id} added by {update.effective_user.id}")
@@ -856,37 +864,43 @@ class DeveloperCommands:
                 # Get OWNER info
                 try:
                     owner_user = await context.bot.get_chat(config.OWNER_ID)
-                    owner_name = owner_user.first_name
+                    owner_name = owner_user.first_name or "Owner"
                 except Exception as e:
                     logger.debug(f"Could not fetch owner info: {e}")
                     owner_name = "Owner"
-                
-                dev_text += f"• {owner_name} (ID: {config.OWNER_ID})\n"
-                
+
+                owner_mention = f'<a href="tg://user?id={config.OWNER_ID}">{owner_name}</a>'
+                dev_text += f"• {owner_mention} (ID: {config.OWNER_ID})\n"
+
                 # Get WIFU info if exists
                 if config.WIFU_ID:
                     try:
                         wifu_user = await context.bot.get_chat(config.WIFU_ID)
-                        wifu_name = wifu_user.first_name
+                        wifu_name = wifu_user.first_name or "Developer"
                         # Check if name has emoji, otherwise it might be the second developer
-                        dev_text += f"• {wifu_name} (ID: {config.WIFU_ID})\n"
+                        wifu_mention = f'<a href="tg://user?id={config.WIFU_ID}">{wifu_name}</a>'
+                        dev_text += f"• {wifu_mention} (ID: {config.WIFU_ID})\n"
                     except Exception as e:
                         logger.debug(f"Could not fetch WIFU info: {e}")
-                        dev_text += f"• Developer (ID: {config.WIFU_ID})\n"
-                
+                        wifu_mention = f'<a href="tg://user?id={config.WIFU_ID}">Developer</a>'
+                        dev_text += f"• {wifu_mention} (ID: {config.WIFU_ID})\n"
+
                 # Show other developers from database
                 if developers:
                     for dev in developers:
+                        dev_uid = dev['user_id']
                         try:
-                            dev_user = await context.bot.get_chat(dev['user_id'])
-                            dev_name = dev_user.first_name
-                            dev_text += f"• {dev_name} (ID: {dev['user_id']})\n"
+                            dev_user = await context.bot.get_chat(dev_uid)
+                            dev_name = dev_user.first_name or f"User{dev_uid}"
+                            d_mention = f'<a href="tg://user?id={dev_uid}">{dev_name}</a>'
+                            dev_text += f"• {d_mention} (ID: {dev_uid})\n"
                         except Exception as e:
                             logger.debug(f"Could not fetch developer info: {e}")
-                            username = dev.get('username') or dev.get('first_name') or f"User{dev['user_id']}"
-                            dev_text += f"• {username} (ID: {dev['user_id']})\n"
-                
-                reply = await update.message.reply_text(dev_text)
+                            d_name = dev.get('username') or dev.get('first_name') or f"User{dev_uid}"
+                            d_mention = f'<a href="tg://user?id={dev_uid}">{d_name}</a>'
+                            dev_text += f"• {d_mention} (ID: {dev_uid})\n"
+
+                reply = await update.message.reply_text(dev_text, parse_mode=ParseMode.HTML)
                 await self.auto_clean_message(update.message, reply)
             
             else:
