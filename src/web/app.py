@@ -121,8 +121,11 @@ def get_app():
     return app._get_real_app()
 
 
-async def init_bot():
-    global telegram_bot, event_loop, loop_thread
+async def _bot_lifecycle():
+    """Single coroutine that inits, starts, and keeps the bot running forever.
+    Runs in one persistent event loop — same loop used for process_update calls."""
+    global telegram_bot
+
     from src.core.database import DatabaseManager
     from src.core.quiz import QuizManager
     from src.bot.handlers import TelegramQuizBot
@@ -136,7 +139,6 @@ async def init_bot():
     q_mgr     = QuizManager(db_manager=db_mgr)
     bot       = TelegramQuizBot(q_mgr, db_manager=db_mgr)
 
-    # BUG FIX: inject the shared managers into Flask
     create_app(injected_db=db_mgr, injected_quiz=q_mgr)
 
     webhook_url = os.environ.get("WEBHOOK_URL", "")
@@ -144,27 +146,29 @@ async def init_bot():
     final_url   = (render_url or webhook_url).rstrip("/") + "/webhook"
 
     await bot.initialize_webhook(token, final_url)
+    await bot.application.start()   # start the dispatcher — required in PTB v20+
     telegram_bot = bot
+    logger.info("✅ Telegram bot ready (background init complete)")
 
-    event_loop  = asyncio.new_event_loop()
-    loop_thread = threading.Thread(
-        target=start_background_loop, args=(event_loop,), daemon=True)
-    loop_thread.start()
+    await asyncio.Event().wait()    # run forever until process exits
 
 
 def init_bot_webhook(webhook_url: str):
-    """Start bot init in a background thread so Gunicorn worker boots instantly."""
-    def _run():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(init_bot())
-            logger.info("✅ Telegram bot ready (background init complete)")
-        except Exception as e:
-            logger.error(f"❌ Bot background init failed: {e}", exc_info=True)
+    """Launch bot lifecycle in a background thread; event_loop set before thread
+    starts so the webhook route can use it immediately (no race condition)."""
+    global event_loop
 
-    t = threading.Thread(target=_run, daemon=True, name="bot-init")
-    t.start()
+    new_loop      = asyncio.new_event_loop()
+    event_loop    = new_loop          # assign first — webhook route reads this
+
+    def _run():
+        asyncio.set_event_loop(new_loop)
+        try:
+            new_loop.run_until_complete(_bot_lifecycle())
+        except Exception as e:
+            logger.error(f"❌ Bot lifecycle error: {e}", exc_info=True)
+
+    threading.Thread(target=_run, daemon=True, name="bot-main").start()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
