@@ -341,6 +341,7 @@ class TelegramQuizBot:
             bot_inline = "Miss Quiz 🎓"
 
         kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❓ Help",             callback_data="help")],
             [InlineKeyboardButton("🎓 Start Quiz",      callback_data="play_quiz"),
              InlineKeyboardButton("🎓 My Profile",        callback_data="my_profile")],
             [InlineKeyboardButton("🎓 Leaderboard",     callback_data="leaderboard"),
@@ -580,6 +581,7 @@ class TelegramQuizBot:
             bot_inline = "Miss Quiz 🎓"
 
         kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❓ Help",              callback_data="help")],
             [InlineKeyboardButton("🎓 Start Quiz",       callback_data="play_quiz"),
              InlineKeyboardButton("🎓 My Profile",         callback_data="my_profile")],
             [InlineKeyboardButton("🎓 Leaderboard",      callback_data="leaderboard"),
