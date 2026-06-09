@@ -113,12 +113,15 @@ class DatabaseManager:
             return None
 
     def update_question(self, qid: int, question: str, options: list,
-                        correct_answer: int) -> bool:
+                        correct_answer: int, category: str = None) -> bool:
         try:
+            fields = {"question": question, "options": options,
+                      "correct_answer": correct_answer}
+            if category is not None:
+                fields["category"] = category
             result = self.questions_col.update_one(
                 {"id": qid},
-                {"$set": {"question": question, "options": options,
-                           "correct_answer": correct_answer}}
+                {"$set": fields}
             )
             return result.matched_count > 0
         except Exception as e:
@@ -255,8 +258,9 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"log_activity error: {e}")
 
-    def get_recent_activities(self, limit: int = 50) -> List[Dict]:
-        return list(self.activities_col.find({}, {"_id": 0})
+    def get_recent_activities(self, limit: int = 50, activity_type: str = None) -> List[Dict]:
+        query = {} if not activity_type else {"type": activity_type}
+        return list(self.activities_col.find(query, {"_id": 0})
                     .sort("timestamp", DESCENDING).limit(limit))
 
     def get_user_engagement_stats(self) -> Dict:

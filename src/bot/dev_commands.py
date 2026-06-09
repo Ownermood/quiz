@@ -1074,7 +1074,6 @@ class DeveloperCommands:
             
             if not update.effective_user or not update.effective_chat or not update.message:
                 return
-                return
             
             # Determine media type and recipient counts for logging (PM-accessible users only)
             users = self.db.get_pm_accessible_users()
@@ -1796,14 +1795,14 @@ class DeveloperCommands:
                 )
                 await self.auto_clean_message(update.message, reply)
                 return
-            
-            broadcast_messages = broadcast_data['message_data']
-            
+
+            broadcast_messages = broadcast_data.get('messages', [])
+
             if not broadcast_messages:
                 reply = await update.message.reply_text("❌ Broadcast data not found")
                 await self.auto_clean_message(update.message, reply)
                 return
-            
+
             # Store broadcast ID in context for confirmation (prevents race condition with multiple broadcasts)
             if context.user_data is not None:
                 context.user_data['pending_delete_broadcast_id'] = broadcast_data['broadcast_id']
@@ -1988,72 +1987,71 @@ class DeveloperCommands:
             response_trends = self.db.get_response_time_trends(hours=hours)
             api_calls = self.db.get_api_call_counts(hours=hours)
             memory_history = self.db.get_memory_usage_history(hours=hours)
-            
-            import psutil
-            import os
-            process = psutil.Process(os.getpid())
-            current_memory_mb = process.memory_info().rss / 1024 / 1024
-            
+
+            # psutil is optional — graceful fallback if not installed
+            current_memory_mb = 0.0
+            try:
+                import psutil
+                current_memory_mb = psutil.Process().memory_info().rss / 1024 / 1024
+            except Exception:
+                pass
+
+            # perf_summary keys: {"response_time": {"avg": X, "count": Y}, "memory": {...}, ...}
+            rt_avg  = perf_summary.get("response_time", {}).get("avg", 0) or 0
+            mem_avg = perf_summary.get("memory", {}).get("avg", 0) or 0
+            total_api_calls = sum(api_calls.values()) if api_calls else 0
+
             perf_message = f"📊 *Performance Metrics Dashboard*\n"
             perf_message += f"🕒 *Period:* Last {hours} hours\n\n"
-            
+
             perf_message += f"⚡ *Response Times:*\n"
-            perf_message += f"• Average: {perf_summary['avg_response_time']:.2f}ms\n"
+            perf_message += f"• Average: {rt_avg:.2f}ms\n"
             if response_trends:
-                recent_avg = sum(t['avg_response_time'] for t in response_trends[:3]) / min(3, len(response_trends))
-                perf_message += f"• Recent (3h): {recent_avg:.2f}ms\n"
+                recent_vals = [t['value'] for t in response_trends[-3:] if 'value' in t]
+                if recent_vals:
+                    recent_avg = sum(recent_vals) / len(recent_vals)
+                    perf_message += f"• Recent (3h): {recent_avg:.2f}ms\n"
             perf_message += f"\n"
-            
+
             perf_message += f"📞 *API Calls:*\n"
-            perf_message += f"• Total: {perf_summary['total_api_calls']:,}\n"
+            perf_message += f"• Total: {total_api_calls:,}\n"
             if api_calls:
                 top_api = sorted(api_calls.items(), key=lambda x: x[1], reverse=True)[:3]
                 for api_name, count in top_api:
                     if api_name:
                         perf_message += f"• {api_name}: {count:,}\n"
             perf_message += f"\n"
-            
+
             perf_message += f"💾 *Memory Usage:*\n"
-            perf_message += f"• Current: {current_memory_mb:.2f} MB\n"
-            if perf_summary['avg_memory_mb'] > 0:
-                perf_message += f"• Average: {perf_summary['avg_memory_mb']:.2f} MB\n"
+            if current_memory_mb:
+                perf_message += f"• Current: {current_memory_mb:.2f} MB\n"
+            if mem_avg > 0:
+                perf_message += f"• Average: {mem_avg:.2f} MB\n"
             if memory_history:
-                max_mem = max(m['memory_usage_mb'] for m in memory_history)
-                min_mem = min(m['memory_usage_mb'] for m in memory_history)
-                perf_message += f"• Peak: {max_mem:.2f} MB\n"
-                perf_message += f"• Min: {min_mem:.2f} MB\n"
+                mem_vals = [m['value'] for m in memory_history if 'value' in m]
+                if mem_vals:
+                    perf_message += f"• Peak: {max(mem_vals):.2f} MB\n"
+                    perf_message += f"• Min: {min(mem_vals):.2f} MB\n"
             perf_message += f"\n"
-            
-            perf_message += f"❌ *Error Rate:*\n"
-            perf_message += f"• Rate: {perf_summary['error_rate']:.2f}%\n"
-            perf_message += f"\n"
-            
-            perf_message += f"🟢 *Uptime:*\n"
-            perf_message += f"• Status: {perf_summary['uptime_percent']:.1f}%\n"
-            perf_message += f"\n"
-            
+
             if response_trends:
-                perf_message += f"📈 *Response Time Trends:*\n"
-                for trend in response_trends[:5]:
-                    hour = trend['hour'].split(' ')[1][:5]
-                    perf_message += f"• {hour}: {trend['avg_response_time']:.1f}ms ({trend['count']} ops)\n"
+                perf_message += f"📈 *Response Time Trends (last 5):*\n"
+                for trend in response_trends[-5:]:
+                    ts = trend.get('timestamp', '')[:16]
+                    val = trend.get('value', 0)
+                    perf_message += f"• {ts}: {val:.1f}ms\n"
                 perf_message += f"\n"
-            
+
             perf_message += f"💡 *Commands:*\n"
             perf_message += f"• /performance [hours] - Custom time period\n"
             perf_message += f"• Max 168 hours (7 days)\n"
-            
+
             await loading_msg.edit_text(perf_message, parse_mode=ParseMode.MARKDOWN)
-            
+
             response_time = int((time.time() - start_time) * 1000)
             logger.info(f"/performance dashboard shown in {response_time}ms")
-            
-            self.db.log_performance_metric(
-                metric_type='response_time',
-                metric_name='/performance',
-                value=response_time,
-                unit='ms'
-            )
+
+            self.db.log_performance_metric(metric='response_time', value=response_time)
             
         except Exception as e:
             response_time = int((time.time() - start_time) * 1000)
@@ -2085,16 +2083,19 @@ class DeveloperCommands:
             
             loading_msg = await update.message.reply_text("📊 Loading comprehensive dev stats...")
             
-            import psutil
             from datetime import datetime, timedelta
-            
-            process = psutil.Process()
-            memory_mb = process.memory_info().rss / 1024 / 1024
-            
+
+            memory_mb = 0.0
+            uptime_seconds = 0.0
+            try:
+                import psutil
+                process = psutil.Process()
+                memory_mb = process.memory_info().rss / 1024 / 1024
+                uptime_seconds = (datetime.now() - datetime.fromtimestamp(process.create_time())).total_seconds()
+            except Exception:
+                pass
             if hasattr(self.quiz_manager, 'bot_start_time'):
                 uptime_seconds = (datetime.now() - self.quiz_manager.bot_start_time).total_seconds()
-            else:
-                uptime_seconds = (datetime.now() - datetime.fromtimestamp(process.create_time())).total_seconds()
             
             if uptime_seconds >= 86400:
                 uptime_str = f"{uptime_seconds/86400:.1f} days"
@@ -2128,7 +2129,7 @@ class DeveloperCommands:
             activity_feed = ""
             for activity in recent_activities:
                 time_ago = self.db.format_relative_time(activity['timestamp'])
-                activity_type = activity['activity_type']
+                activity_type = activity.get('type') or activity.get('activity_type', 'unknown')
                 username = activity.get('username', 'Unknown')
                 
                 if activity_type == 'command':
@@ -2152,18 +2153,24 @@ class DeveloperCommands:
             most_active_text = ""
             for i, user in enumerate(most_active[:5], 1):
                 name = user.get('first_name') or user.get('username') or f"User{user['user_id']}"
-                most_active_text += f"{i}. {name}: {user['activity_count']} actions\n"
+                most_active_text += f"{i}. {name}: {user.get('total_answers', 0)} answers\n"
             if not most_active_text:
                 most_active_text = "No active users yet"
             
+            rt_avg_24h  = perf_24h.get("response_time", {}).get("avg", 0) or 0
+            mem_avg_24h = perf_24h.get("memory", {}).get("avg", 0) or 0
+            quiz_today_total = quiz_today.get('total_quizzes', 0)
+            quiz_week_total  = quiz_week.get('total_quizzes', 0)
+            quiz_week_correct= quiz_week.get('correct_answers', 0)
+            success_rate = round(quiz_week_correct / quiz_week_total * 100, 1) if quiz_week_total else 0
+
             devstats_message = f"""📊 **Developer Statistics Dashboard**
 ━━━━━━━━━━━━━━━━━━━
 
 ⚙️ **System Health**
 • Uptime: {uptime_str}
-• Memory: {memory_mb:.1f} MB (avg: {perf_24h['avg_memory_mb']:.1f} MB)
-• Error Rate: {perf_24h['error_rate']:.1f}%
-• Avg Response: {perf_24h['avg_response_time']:.0f}ms
+• Memory: {memory_mb:.1f} MB (avg: {mem_avg_24h:.1f} MB)
+• Avg Response: {rt_avg_24h:.0f}ms
 
 📊 **Activity Breakdown** (Last 24h)
 • Commands Executed: {commands_24h:,}
@@ -2180,11 +2187,11 @@ class DeveloperCommands:
 • New Users (7d): {new_users}
 
 📝 **Quiz Performance**
-• Sent Today: {quiz_today['quizzes_sent']}
-• Sent This Week: {quiz_week['quizzes_sent']}
-• Success Rate: {quiz_week['success_rate']}%
+• Sent Today: {quiz_today_total}
+• Sent This Week: {quiz_week_total}
+• Success Rate: {success_rate}%
 
-🏆 **Most Active Users** (30d)
+🏆 **Most Active Users**
 {most_active_text}
 
 📜 **Recent Activity Feed**
@@ -2745,7 +2752,7 @@ Example:
         
         try:
             success = self.db.update_question(
-                question_id=quiz_id,
+                qid=quiz_id,
                 question=quiz_data['question'],
                 options=quiz_data['options'],
                 correct_answer=quiz_data['correct_answer'],
