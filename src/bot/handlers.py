@@ -177,8 +177,10 @@ class TelegramQuizBot:
         self.application: Optional[Application] = None
         self._dev                     = None
         self._del_page: dict          = {}
-        self._active_msg: dict        = {}   # user_id -> Message object
-        self._nav_history: dict       = {}   # user_id -> list of screen names
+        self._active_msg: dict        = {}
+        self._nav_history: dict       = {}
+        self._lb_cache: dict          = {}
+        self._lb_cache_ttl: int       = 60
 
     # ─── Navigation helpers ───────────────────────────────────
 
@@ -1405,7 +1407,7 @@ class TelegramQuizBot:
     LB_MAX_RANKS = 50
 
     async def cmd_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await self._show_leaderboard(update, context, mode="global", page=1, track=True)
+        await self._show_leaderboard(update, context, mode="global", page=1)
 
     # ── Period mapping ─────────────────────────────────────────
     _LB_PERIOD = {"global": 36500, "weekly": 7, "monthly": 30}
@@ -1540,8 +1542,7 @@ class TelegramQuizBot:
         await self._smart_edit(update, text, kb, edit_msg)
 
     async def _show_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
-                                mode: str = "global", page: int = 1, edit_msg=None,
-                                track: bool = False):
+                                mode: str = "global", page: int = 1, edit_msg=None):
         chat     = update.effective_chat
         is_group = chat.type in ("group", "supergroup")
         req_user = update.effective_user
@@ -2452,7 +2453,7 @@ class TelegramQuizBot:
 
         elif data == "leaderboard":
             await self._show_leaderboard(update, context, mode="global", page=1,
-                                         edit_msg=query.message, track=True)
+                                         edit_msg=query.message)
 
         elif data == "my_profile":
             if uid: self._nav_push(uid, "stats")
