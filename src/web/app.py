@@ -182,21 +182,26 @@ def admin_panel():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     global telegram_bot, event_loop
+    bot_ready  = telegram_bot is not None and telegram_bot.application is not None
+    loop_alive = event_loop is not None and event_loop.is_running()
+    logger.info(f"[WEBHOOK] POST hit — bot_ready={bot_ready} loop_running={loop_alive}")
     try:
-        if not telegram_bot or not telegram_bot.application:
+        if not bot_ready:
+            logger.error("[WEBHOOK] bot not ready — returning 500")
             return jsonify({'status': 'error', 'message': 'Bot not initialized'}), 500
 
         update_data = request.get_json(force=True)
         if not update_data:
             return jsonify({'status': 'ok'}), 200
 
+        logger.info(f"[WEBHOOK] update_id={update_data.get('update_id')} type={list(update_data.keys())}")
         update = Update.de_json(update_data, telegram_bot.application.bot)
         run_coroutine_threadsafe(
             telegram_bot.application.process_update(update), event_loop)
         return jsonify({'status': 'ok'}), 200
 
     except Exception as e:
-        logger.error(f"Webhook error: {e}", exc_info=True)
+        logger.error(f"[WEBHOOK] error: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
