@@ -119,6 +119,21 @@ class UI:
         safe = name.replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;")
         return f'<a href="tg://user?id={user_id}">{safe}</a>'
 
+    # ── Display name (HTML-safe) ──────────────────────────────
+    @staticmethod
+    def display_name(user) -> str:
+        """Returns HTML-safe display name: first_name > full name > @username > 'User'"""
+        if not user:
+            return "User"
+        name = (user.first_name or "").strip()
+        if not name and user.last_name:
+            name = user.last_name.strip()
+        if not name and user.username:
+            name = f"@{user.username}"
+        if not name:
+            name = "User"
+        return name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     # ── Streak display ────────────────────────────────────────
     @staticmethod
     def streak_display(n: int) -> str:
@@ -426,7 +441,7 @@ class TelegramQuizBot:
     async def _unauthorized(self, update: Update):
         """Professional access denied — auto-deletes after 7s."""
         user    = update.effective_user
-        mention = UI.mention(user.id, user.first_name or "User")
+        mention = UI.mention(user.id, UI.display_name(user))
         text = (
             f"🔒 <b>ACCESS RESTRICTED</b>\n"
             f"{UI.LINE}\n\n"
@@ -460,7 +475,7 @@ class TelegramQuizBot:
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
-        name    = user.first_name or "Darling"
+        name    = UI.display_name(user)
         mention = UI.mention(user.id, name)
         is_pm   = update.effective_chat.type == "private"
 
@@ -603,29 +618,34 @@ class TelegramQuizBot:
     # ─── /info ───────────────────────────────────────────────
 
     async def cmd_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        chat      = update.effective_chat
-        thread_id = get_thread_id(update)
-        q_count   = len(self.quiz_manager.questions)
-        is_forum  = getattr(chat, "is_forum", False)
+        chat    = update.effective_chat
+        q_count = len(self.quiz_manager.questions)
+
+        _type_map = {
+            "private":    "DM",
+            "group":      "Group",
+            "supergroup":  "Supergroup",
+            "channel":    "Channel",
+        }
+        chat_type = _type_map.get(chat.type, chat.type)
 
         text = (
-            f"ℹ️ <b>BOT INFORMATION</b>\n"
-            f"{UI.LINE}\n\n"
-            f"<b>BOT</b>\n"
-            f"  Name      ›  CLAT Vision Quiz Bot\n"
-            f"  Questions ›  <b>{q_count}</b>\n"
-            f"  Database  ›  MongoDB Atlas ✅\n"
-            f"  Owner     ›  {OWNER_NAME}\n\n"
-            f"<b>THIS CHAT</b>\n"
-            f"  ID    ›  <code>{chat.id}</code>\n"
-            f"  Type  ›  <code>{chat.type}</code>\n"
-            f"  Forum ›  <code>{is_forum}</code>\n"
-        )
-        if thread_id:
-            text += f"  Topic ›  <code>{thread_id}</code>\n"
-        text += (
-            f"\n{UI.LINE}\n"
-            f"  ⚡ {COMMUNITY}  ·  CLAT 2027"
+            f"ℹ️  <b>𝐁𝐎𝐓  𝐈𝐍𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🤖  <b>𝐁𝐎𝐓</b>\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  📛  Name        ›  CLAT Vision Quiz Bot\n"
+            f"│  📚  Questions   ›  <b>{q_count}</b>\n"
+            f"│  🗄  Database    ›  MongoDB Atlas ✅\n"
+            f"│  👑  Owner       ›  {OWNER_NAME}\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"💬  <b>𝐓𝐇𝐈𝐒  𝐂𝐇𝐀𝐓</b>\n"
+            f"╭──────────────────────────────────────╮\n"
+            f"│  🆔  Chat ID     ›  <code>{chat.id}</code>\n"
+            f"│  📌  Type        ›  {chat_type}\n"
+            f"╰──────────────────────────────────────╯\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚡  {COMMUNITY}  ·  CLAT 2027"
         )
         await self._reply(update, text)
 
@@ -765,7 +785,7 @@ class TelegramQuizBot:
 
     async def cmd_score(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
-        mention = UI.mention(user.id, user.first_name or "User")
+        mention = UI.mention(user.id, UI.display_name(user))
         score   = self.quiz_manager.get_score(user.id)
         stats   = self.quiz_manager.get_user_stats(user.id)
 
@@ -817,7 +837,7 @@ class TelegramQuizBot:
 
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user    = update.effective_user
-        mention = UI.mention(user.id, user.first_name or "User")
+        mention = UI.mention(user.id, UI.display_name(user))
 
         msg = await self._reply(update, "📊 <i>Crunching your analytics...</i>")
         await asyncio.sleep(0.4)
@@ -1195,7 +1215,7 @@ class TelegramQuizBot:
         added   = result.get("added", 0)
         dups    = result.get("rejected", {}).get("duplicates", 0)
         total   = len(self.quiz_manager.questions)
-        mention = UI.mention(user.id, user.first_name or "Admin")
+        mention = UI.mention(user.id, UI.display_name(user))
 
         if added > 0:
             text = (
@@ -1260,7 +1280,7 @@ class TelegramQuizBot:
                         break
 
             if q_id is not None:
-                mention   = UI.mention(user.id, user.first_name or "Admin")
+                mention   = UI.mention(user.id, UI.display_name(user))
                 q_info    = next((q for q in self.quiz_manager.questions
                                   if q.get("id") == q_id), {})
                 q_preview = q_info.get("question", f"#{q_id}")[:55]
@@ -1407,7 +1427,7 @@ class TelegramQuizBot:
             preview = q_info.get("question", "")[:55] if q_info else f"#{qid}"
 
             success = self.quiz_manager.delete_question_by_db_id(qid)
-            mention = UI.mention(actor.id, actor.first_name or "Admin")
+            mention = UI.mention(actor.id, UI.display_name(actor))
 
             if success:
                 remaining = len(self.quiz_manager.questions)
@@ -1498,7 +1518,7 @@ class TelegramQuizBot:
         await asyncio.sleep(0.3)
 
         mention = UI.mention(user.id,
-            OWNER_NAME if self._is_owner(user.id) else (user.first_name or "Dev"))
+            OWNER_NAME if self._is_owner(user.id) else UI.display_name(user))
         q_count = len(self.quiz_manager.questions)
         chats   = len(self.quiz_manager.active_chats)
         users = groups = 0
@@ -1627,7 +1647,7 @@ class TelegramQuizBot:
             return
 
         mention = UI.mention(user.id,
-            OWNER_NAME if self._is_owner(user.id) else (user.first_name or "Admin"))
+            OWNER_NAME if self._is_owner(user.id) else UI.display_name(user))
         msg = await self._reply(update, "🔄 <i>Syncing from MongoDB...</i>")
         await asyncio.sleep(0.4)
 
@@ -1718,7 +1738,7 @@ class TelegramQuizBot:
             return
 
         mention = UI.mention(user.id,
-            OWNER_NAME if self._is_owner(user.id) else (user.first_name or "Admin"))
+            OWNER_NAME if self._is_owner(user.id) else UI.display_name(user))
 
         fname  = doc.file_name or ""
         is_txt = (
