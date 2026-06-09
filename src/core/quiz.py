@@ -8,7 +8,7 @@ import json
 import random
 import logging
 import traceback
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from src.core.database import DatabaseManager
@@ -130,23 +130,20 @@ class QuizManager:
                 return selected
 
             # ── No category path ─────────────────────────────────────────
-            # Use the in-memory cache — always accurate because:
-            #   _load_questions() fills it at startup
-            #   add_questions() appends new entries
-            #   delete_question_by_db_id() removes entries
-            #   reload_data() refreshes it fully
-            # Fetching all questions from DB on every call was O(N) per quiz.
-            if not self.questions:
-                return None
+            # Always fetch from DB so IDs are accurate for /delquiz
+            raw = self.db.get_all_questions()
+            if not raw:
+                return random.choice(self.questions) if self.questions else None
+
+            pool = [_fmt_question(q) for q in raw]  # ← BUG FIX: use _fmt_question
 
             if chat_id == 0:
-                return random.choice(self.questions)
+                return random.choice(pool)
 
             recent    = self.recent_questions[chat_id]
-            available = [q for q in self.questions if q["question"] not in recent]
+            available = [q for q in pool if q["question"] not in recent]
             if not available:
-                self.recent_questions[chat_id].clear()
-                available = list(self.questions)
+                available = pool
                 logger.info(f"Reset recent questions for chat {chat_id}")
 
             selected = random.choice(available)
@@ -164,16 +161,15 @@ class QuizManager:
         added, db_saved = 0, 0
         duplicates, errors = [], []
 
-        # Build set once O(N) instead of per-question list rebuild O(N²)
-        existing_set = {q["question"].strip() for q in self.questions}
-
         for q in questions:
             question = q.get("question", "").strip()
             options  = q.get("options", [])
             correct  = q.get("correct_answer", 0)
             category = q.get("category", "General")
 
-            if question in existing_set:
+            # Duplicate check
+            existing = [ex["question"].strip() for ex in self.questions]
+            if question in existing:
                 duplicates.append(question)
                 continue
 
@@ -185,7 +181,6 @@ class QuizManager:
                         "options": options, "correct_answer": correct, "category": category
                     })
                     self.questions.append(new_q)
-                    existing_set.add(question)
                     added    += 1
                     db_saved += 1
                 else:
@@ -263,8 +258,7 @@ class QuizManager:
             self._init_user_stats(uid)
 
         s     = self.stats[uid]
-        today = datetime.utcnow().strftime("%Y-%m-%d")
-        yesterday = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+        today = datetime.now().strftime("%Y-%m-%d")
 
         s["total_quizzes"] += 1
         if today not in s["daily_activity"]:
@@ -276,10 +270,10 @@ class QuizManager:
             s["daily_activity"][today]["correct"] += 1
             self.scores[user_id]   = self.scores.get(user_id, 0) + 1
 
-            last = s.get("last_correct_date")
-            if last == today:
-                pass  # already counted today, keep streak unchanged
-            elif last == yesterday:
+            if s["last_correct_date"] == today:
+                s["current_streak"] += 1
+            elif s.get("last_correct_date") == (
+                datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"):
                 s["current_streak"] += 1
             else:
                 s["current_streak"] = 1
@@ -292,6 +286,9 @@ class QuizManager:
                 s["category_scores"][category] = s["category_scores"].get(category, 0) + 1
         else:
             s["current_streak"] = 0
+
+        if user_id not in self.active_chats:
+            self.active_chats.append(user_id)
 
     def record_group_attempt(self, user_id: int, chat_id: int, is_correct: bool):
         uid = str(user_id)
@@ -422,6 +419,13 @@ class QuizManager:
 
     # ─── Compatibility shims (used by dev_commands) ──────────────────────────
 
+    def get_group_last_activity(self, chat_id: str) -> Optional[str]:
+        for uid_str, s in self.stats.items():
+            g = s.get("groups", {}).get(str(chat_id))
+            if g:
+                return s.get("last_activity_date")
+        return None
+
     def get_quiz_stats(self) -> Dict:
         """Return basic quiz stats used by dev_commands after deletion."""
         db_count = 0
@@ -443,3 +447,6 @@ class QuizManager:
         except ValueError:
             pass
 
+    def _initialize_available_questions(self, chat_id: int):
+        self.available_questions[chat_id] = list(range(len(self.questions)))
+        random.shuffle(self.available_questions[chat_id])

@@ -27,10 +27,6 @@ loop_thread   = None
 app_start_time = datetime.now()
 
 
-def start_background_loop(loop: asyncio.AbstractEventLoop) -> None:
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
-
 
 def run_coroutine_threadsafe(coro, loop):
     if loop and loop.is_running():
@@ -122,10 +118,7 @@ def get_app():
 
 
 async def _bot_lifecycle():
-    """Single coroutine that inits, starts, and keeps the bot running forever.
-    Runs in one persistent event loop — same loop used for process_update calls."""
     global telegram_bot
-
     from src.core.database import DatabaseManager
     from src.core.quiz import QuizManager
     from src.bot.handlers import TelegramQuizBot
@@ -146,27 +139,25 @@ async def _bot_lifecycle():
     final_url   = (render_url or webhook_url).rstrip("/") + "/webhook"
 
     await bot.initialize_webhook(token, final_url)
-    await bot.application.start()   # start the dispatcher — required in PTB v20+
+    await bot.application.start()
     telegram_bot = bot
-    logger.info("✅ Telegram bot ready (background init complete)")
+    logger.info("✅ Telegram bot ready")
 
-    await asyncio.Event().wait()    # run forever until process exits
+    await asyncio.Event().wait()
 
 
 def init_bot_webhook(webhook_url: str):
-    """Launch bot lifecycle in a background thread; event_loop set before thread
-    starts so the webhook route can use it immediately (no race condition)."""
     global event_loop
 
-    new_loop      = asyncio.new_event_loop()
-    event_loop    = new_loop          # assign first — webhook route reads this
+    new_loop   = asyncio.new_event_loop()
+    event_loop = new_loop
 
     def _run():
         asyncio.set_event_loop(new_loop)
         try:
             new_loop.run_until_complete(_bot_lifecycle())
         except Exception as e:
-            logger.error(f"❌ Bot lifecycle error: {e}", exc_info=True)
+            logger.error(f"Bot lifecycle error: {e}", exc_info=True)
 
     threading.Thread(target=_run, daemon=True, name="bot-main").start()
 
@@ -192,26 +183,20 @@ def admin_panel():
 def webhook():
     global telegram_bot, event_loop
     try:
-        bot_ready  = telegram_bot is not None and telegram_bot.application is not None
-        loop_alive = event_loop is not None and event_loop.is_running()
-        logger.info(f"[WEBHOOK] POST — bot_ready={bot_ready} loop_running={loop_alive}")
-
-        if not bot_ready:
-            logger.error("[WEBHOOK] Bot not initialized — dropping update")
+        if not telegram_bot or not telegram_bot.application:
             return jsonify({'status': 'error', 'message': 'Bot not initialized'}), 500
 
         update_data = request.get_json(force=True)
         if not update_data:
             return jsonify({'status': 'ok'}), 200
 
-        logger.info(f"[WEBHOOK] update_id={update_data.get('update_id')}")
         update = Update.de_json(update_data, telegram_bot.application.bot)
         run_coroutine_threadsafe(
             telegram_bot.application.process_update(update), event_loop)
         return jsonify({'status': 'ok'}), 200
 
     except Exception as e:
-        logger.error(f"[WEBHOOK] Error: {e}", exc_info=True)
+        logger.error(f"Webhook error: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
