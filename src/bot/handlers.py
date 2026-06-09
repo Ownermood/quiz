@@ -340,7 +340,7 @@ class TelegramQuizBot:
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎓 Start Quiz",      callback_data="play_quiz"),
-             InlineKeyboardButton("🎓 My Stats",        callback_data="my_stats")],
+             InlineKeyboardButton("🎓 My Profile",        callback_data="my_profile")],
             [InlineKeyboardButton("🎓 Leaderboard",     callback_data="leaderboard"),
              InlineKeyboardButton("🎓 Commands",        callback_data="help")],
             [InlineKeyboardButton("🎓 Join CLAT Vision", url="https://t.me/CLAT_Vision")],
@@ -579,7 +579,7 @@ class TelegramQuizBot:
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎓 Start Quiz",       callback_data="play_quiz"),
-             InlineKeyboardButton("🎓 My Stats",         callback_data="my_stats")],
+             InlineKeyboardButton("🎓 My Profile",         callback_data="my_profile")],
             [InlineKeyboardButton("🎓 Leaderboard",      callback_data="leaderboard"),
              InlineKeyboardButton("🎓 Commands",          callback_data="help")],
             [InlineKeyboardButton("🎓 Join CLAT Vision",  url="https://t.me/CLAT_Vision")],
@@ -1000,7 +1000,7 @@ class TelegramQuizBot:
         )
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎓 Play Quiz",      callback_data="play_quiz"),
-             InlineKeyboardButton("🎓 Full Stats",     callback_data="my_stats")],
+             InlineKeyboardButton("🎓 My Profile",     callback_data="my_profile")],
             [InlineKeyboardButton("🎓 Achievements",   callback_data="achievements"),
              InlineKeyboardButton("🎓 Leaderboard",    callback_data="leaderboard")],
             self._nav_row(back_screen="home"),
@@ -1179,7 +1179,7 @@ class TelegramQuizBot:
         )
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎓 Play Quiz",  callback_data="play_quiz"),
-             InlineKeyboardButton("🎓 My Score",   callback_data="my_stats")],
+             InlineKeyboardButton("🎓 My Profile",   callback_data="my_profile")],
             self._nav_row(back_screen="home"),
         ])
         await self._smart_edit(update, text, kb, edit_msg=edit_msg)
@@ -2454,7 +2454,7 @@ class TelegramQuizBot:
             await self._show_leaderboard(update, context, mode="global", page=1,
                                          edit_msg=query.message, track=True)
 
-        elif data == "my_stats":
+        elif data == "my_profile":
             if uid: self._nav_push(uid, "stats")
             await self.cmd_stats(update, context, edit_msg=query.message)
 
