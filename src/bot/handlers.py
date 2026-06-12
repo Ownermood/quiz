@@ -599,17 +599,9 @@ class TelegramQuizBot:
         if user:
             self._nav_clear(user.id)
 
-        # Track groups that run /start
-        if not is_pm and self.db:
-            try:
-                self.db.register_group_interaction(
-                    chat_id=chat.id,
-                    thread_id=get_thread_id(update),
-                    title=chat.title or "",
-                    username=getattr(chat, "username", "") or ""
-                )
-            except Exception:
-                pass
+        # Track groups via central pipeline
+        if not is_pm:
+            self.ensure_group_registered(update, context, source="cmd-start")
 
         try:
             bot_info   = await self.application.bot.get_me()
@@ -658,32 +650,74 @@ class TelegramQuizBot:
                 logger.error(f"upsert_user: {e}")
 
     # ══════════════════════════════════════════════════════════════
-    #  GROUP TRACKING — SELF-HEALING ARCHITECTURE
+    #  GROUP TRACKING — SINGLE PIPELINE
     #
-    #  Three complementary mechanisms ensure every group is captured:
+    #  ALL group events funnel through ensure_group_registered().
+    #  This is the ONLY place that calls register_group_interaction.
     #
-    #  1. my_chat_member events  — fires on bot add/remove/promotion/demotion
-    #  2. Passive registration   — fires on EVERY message from a group (group 1)
-    #  3. Inline registration    — fires on EVERY callback query from a group
+    #  _seen_groups is a PERFORMANCE CACHE ONLY.
+    #  It prevents redundant MongoDB upserts for groups already seen
+    #  this session.  It is NEVER used for counts or analytics.
+    #  All counts come exclusively from the database.
     #
-    #  Together these recover groups that existed before tracking was added
-    #  without any manual owner interaction required.
+    #  Sources that call ensure_group_registered:
+    #    • my_chat_member  — bot added/promoted/restricted
+    #    • passive message handler (group 1) — any group message
+    #    • handle_callback — inline button presses from groups
+    #    • handle_poll_answer — quiz answers (chat recovered from bot_data)
+    #    • cmd_start / cmd_quiz — explicit entry points
+    #    • _handle_group_migration — group→supergroup ID transfer
     # ══════════════════════════════════════════════════════════════
 
-    def _try_register_group(self, chat, source: str, thread_id=None) -> bool:
-        """Register a group in DB if not seen this session.
-        Returns True on new registration, False if already cached.
-        source is logged for diagnostics."""
-        if not self.db or not chat:
-            return False
-        if chat.type not in ("group", "supergroup"):
-            return False
+    def ensure_group_registered(
+        self,
+        update: Update,
+        context=None,
+        source: str = "unknown",
+    ) -> None:
+        """Central group registration pipeline — call from every handler.
+
+        DB is authoritative.  _seen_groups is a write-dedup cache only;
+        never read it for analytics or broadcast targeting.
+        """
+        if not self.db:
+            return
+
+        chat = update.effective_chat
+
+        # poll_answer has no effective_chat — recover chat_id from bot_data
+        if chat is None and context is not None and update.poll_answer:
+            poll_id  = update.poll_answer.poll_id
+            data     = context.bot_data.get(f"poll_{poll_id}", {})
+            chat_id  = data.get("chat_id")
+            if chat_id and isinstance(chat_id, int) and chat_id < 0:
+                if chat_id not in self._seen_groups:
+                    try:
+                        self.db.register_group_interaction(
+                            chat_id  = chat_id,
+                            title    = data.get("chat_title", ""),
+                            username = ""
+                        )
+                        self._seen_groups.add(chat_id)
+                        logger.info(
+                            f"[GROUP REGISTERED] id={chat_id} source={source}"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"ensure_group_registered poll {chat_id}: {e}"
+                        )
+            return
+
+        if not chat or chat.type not in ("group", "supergroup"):
+            return
+
         if chat.id in self._seen_groups:
-            return False
+            return  # already upserted this session — skip redundant DB write
+
         try:
             self.db.register_group_interaction(
                 chat_id  = chat.id,
-                thread_id= thread_id,
+                thread_id= get_thread_id(update),
                 title    = chat.title or "",
                 username = getattr(chat, "username", "") or ""
             )
@@ -692,15 +726,17 @@ class TelegramQuizBot:
                 f"[GROUP REGISTERED] id={chat.id} title={chat.title!r} "
                 f"source={source}"
             )
-            return True
         except Exception as e:
-            logger.error(f"_try_register_group {chat.id} ({source}): {e}")
-            return False
+            logger.error(
+                f"ensure_group_registered {chat.id} ({source}): {e}"
+            )
 
     # ─── Bot membership change handler ───────────────────────
 
-    async def handle_my_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Full lifecycle tracking: add / remove / promote / demote / rejoin / migrate."""
+    async def handle_my_chat_member(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Full lifecycle: add / remove / promote / demote / restrict / rejoin."""
         member = update.my_chat_member
         if not member:
             return
@@ -711,67 +747,59 @@ class TelegramQuizBot:
         new_status = member.new_chat_member.status
         old_status = member.old_chat_member.status
 
-        if new_status in ("member", "administrator"):
-            # Bot added or promoted — register / reactivate
-            if self.db:
-                try:
-                    self.db.register_group_interaction(
-                        chat_id  = chat.id,
-                        title    = chat.title or "",
-                        username = getattr(chat, "username", "") or ""
-                    )
-                    self._seen_groups.add(chat.id)
-                    action = "promoted" if old_status == "administrator" else "added"
-                    logger.info(
-                        f"[GROUP {action.upper()}] id={chat.id} "
-                        f"title={chat.title!r}"
-                    )
-                except Exception as e:
-                    logger.error(f"handle_my_chat_member add/promote {chat.id}: {e}")
-
-        elif new_status == "restricted":
-            # Bot restricted in group — keep record, update metadata, log
-            if self.db:
-                try:
-                    self.db.register_group_interaction(
-                        chat_id  = chat.id,
-                        title    = chat.title or "",
-                        username = getattr(chat, "username", "") or ""
-                    )
-                    self._seen_groups.add(chat.id)
-                    logger.info(
-                        f"[GROUP RESTRICTED] id={chat.id} title={chat.title!r}"
-                    )
-                except Exception as e:
-                    logger.error(f"handle_my_chat_member restrict {chat.id}: {e}")
+        if new_status in ("member", "administrator", "restricted"):
+            # Bot present (active or restricted) — register / refresh metadata
+            self.ensure_group_registered(update, context, source="my_chat_member")
+            action = {
+                "member":       "added",
+                "administrator": "promoted",
+                "restricted":   "restricted",
+            }.get(new_status, new_status)
+            if old_status in ("left", "kicked", "banned"):
+                logger.info(
+                    f"[GROUP REACTIVATED] id={chat.id} title={chat.title!r}"
+                )
+            else:
+                logger.info(
+                    f"[GROUP {action.upper()}] id={chat.id} title={chat.title!r}"
+                )
 
         elif new_status in ("left", "kicked", "banned"):
-            # Bot removed — delete record so it doesn't pollute broadcast/botstats
+            # Bot removed — purge from DB so counts stay accurate
             if self.db:
                 try:
                     self.db.remove_inactive_group(chat.id)
                     self._seen_groups.discard(chat.id)
                     logger.info(
-                        f"[GROUP REMOVED] id={chat.id} "
-                        f"title={chat.title!r} status={new_status}"
+                        f"[GROUP REMOVED] id={chat.id} title={chat.title!r} "
+                        f"status={new_status}"
                     )
                 except Exception as e:
-                    logger.error(f"handle_my_chat_member remove {chat.id}: {e}")
+                    logger.error(
+                        f"handle_my_chat_member remove {chat.id}: {e}"
+                    )
 
-    async def _handle_group_migration(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle group→supergroup migration: transfer DB record to new chat_id."""
-        msg = update.effective_message
-        if not msg or not self.db:
+    async def _handle_group_migration(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Group → supergroup migration: move DB record to new chat_id."""
+        msg  = update.effective_message
+        chat = update.effective_chat
+        if not msg or not self.db or not chat:
             return
+
         new_id = getattr(msg, "migrate_to_chat_id", None)
         old_id = getattr(msg, "migrate_from_chat_id", None)
-        chat   = update.effective_chat
 
         if new_id:
-            # This message came from the OLD group — register under new supergroup ID
+            # Message from the OLD group chat — transfer record to new ID
             try:
                 self.db.remove_inactive_group(chat.id)
                 self._seen_groups.discard(chat.id)
+            except Exception as e:
+                logger.error(f"migration remove old {chat.id}: {e}")
+            # Register new supergroup ID using same title/username
+            try:
                 self.db.register_group_interaction(
                     chat_id  = new_id,
                     title    = chat.title or "",
@@ -783,20 +811,18 @@ class TelegramQuizBot:
                     f"title={chat.title!r}"
                 )
             except Exception as e:
-                logger.error(f"_handle_group_migration {chat.id}→{new_id}: {e}")
+                logger.error(f"migration register new {new_id}: {e}")
 
         elif old_id:
-            # This message came from the NEW supergroup — ensure it is registered
-            self._try_register_group(chat, source="migration-target",
-                                     thread_id=get_thread_id(update))
+            # Message from the NEW supergroup — ensure it is registered
+            self.ensure_group_registered(update, context, source="migration-new-id")
 
-    async def _passive_group_register(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Passive group registration — fires in PTB handler group 1 for every
-        message from a group.  Recovers groups that existed before my_chat_member
-        tracking was added.  No-op for groups already seen this session."""
-        chat = update.effective_chat
-        self._try_register_group(chat, source="passive-message",
-                                 thread_id=get_thread_id(update))
+    async def _passive_group_register(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Passive registration — handler group 1, fires for every group message.
+        Thin wrapper around ensure_group_registered; no logic here."""
+        self.ensure_group_registered(update, context, source="passive-message")
 
 
 
@@ -1054,14 +1080,9 @@ class TelegramQuizBot:
                 "category":          cat,
             }
 
-            if self.db and chat.type in ("group", "supergroup"):
+            if chat.type in ("group", "supergroup"):
                 try:
-                    self.db.register_group_interaction(
-                        chat_id   = chat.id,
-                        thread_id = thread_id,
-                        title     = chat.title or "",
-                        username  = getattr(chat, "username", "") or ""
-                    )
+                    self.ensure_group_registered(update, context, source="cmd-quiz")
                 except Exception as eg:
                     logger.error(f"register_group: {eg}")
 
@@ -1078,6 +1099,10 @@ class TelegramQuizBot:
     # ─── POLL ANSWER HANDLER ─────────────────────────────────
 
     async def handle_poll_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # poll_answer has no effective_chat; ensure_group_registered recovers
+        # chat_id from bot_data using the poll_id.
+        self.ensure_group_registered(update, context, source="poll-answer")
+
         answer     = update.poll_answer
         user_id    = answer.user.id
         poll_id    = answer.poll_id
@@ -2271,11 +2296,10 @@ class TelegramQuizBot:
 
         mention = OWNER_LINK if self._is_owner(user.id) else UI.mention(user.id, UI.display_name(user))
         q_count = self._q_count()
-        chats   = len(self.quiz_manager.active_chats)
         users = groups = 0
         if self.db:
             try:
-                users  = len(self.db.get_all_users_stats())
+                users  = self.db.get_user_engagement_stats().get('total_users', 0)
                 groups = len(self.db.get_all_groups())
             except Exception:
                 pass
@@ -2286,10 +2310,9 @@ class TelegramQuizBot:
             f"  {mention}\n\n"
             f"<b>LIVE STATS</b>\n"
             f"{UI.THIN}\n"
-            f"  Questions    ›  <b>{q_count}</b>\n"
-            f"  Users        ›  <b>{users}</b>\n"
-            f"  Groups       ›  <b>{groups}</b>\n"
-            f"  Active Chats ›  <b>{chats}</b>\n\n"
+            f"  Questions  ›  <b>{q_count}</b>\n"
+            f"  Users      ›  <b>{users}</b>\n"
+            f"  Groups     ›  <b>{groups}</b>\n\n"
             f"<b>COMMANDS</b>\n"
             f"{UI.THIN}\n"
             f"  /addquiz   /delquiz   /editquiz\n"
@@ -2665,10 +2688,9 @@ class TelegramQuizBot:
         query = update.callback_query
         await query.answer()
         data  = query.data
-        # Passive group registration: callback queries from groups are not caught
-        # by the MessageHandler in group 1, so we register here too.
-        self._try_register_group(update.effective_chat, source="callback-query",
-                                 thread_id=get_thread_id(update))
+        # Callback queries from groups bypass the group-1 MessageHandler,
+        # so we register here via the central pipeline.
+        self.ensure_group_registered(update, context, source="callback-query")
         uid   = update.effective_user.id if update.effective_user else None
 
         if data == "play_quiz":
