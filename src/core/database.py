@@ -101,6 +101,40 @@ class DatabaseManager:
     def get_question_by_id(self, qid: int) -> Optional[Dict]:
         return self.questions_col.find_one({"id": qid}, {"_id": 0})
 
+    def get_question_count(self) -> int:
+        """Live question count straight from the database."""
+        try:
+            return self.questions_col.count_documents({})
+        except Exception as e:
+            logger.error(f"get_question_count error: {e}")
+            return 0
+
+    def get_category_counts(self) -> List[Dict]:
+        """Live per-category question counts, sorted by count descending."""
+        try:
+            return list(self.questions_col.aggregate([
+                {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+                {"$sort": {"count": DESCENDING}},
+            ]))
+        except Exception as e:
+            logger.error(f"get_category_counts error: {e}")
+            return []
+
+    def get_db_stats(self) -> Dict:
+        """Live database metrics: collections, objects, data/storage size."""
+        try:
+            s = self.db.command("dbstats")
+            return {
+                "collections":  s.get("collections", 0),
+                "objects":      s.get("objects", 0),
+                "data_mb":      round(s.get("dataSize", 0) / 1024 / 1024, 2),
+                "storage_mb":   round(s.get("storageSize", 0) / 1024 / 1024, 2),
+                "indexes":      s.get("indexes", 0),
+            }
+        except Exception as e:
+            logger.error(f"get_db_stats error: {e}")
+            return {}
+
     def get_questions_by_category(self, category: str) -> List[Dict]:
         return list(self.questions_col.find({"category": category}, {"_id": 0}))
 

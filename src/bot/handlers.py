@@ -180,9 +180,16 @@ class TelegramQuizBot:
         self._del_page: dict          = {}
         self._active_msg: dict        = {}
         self._nav_history: dict       = {}
-        self._lb_cache: dict          = {}
-        self._lb_cache_ttl: int       = 60
         self._broadcast_sent: list    = []
+        self._start_ts: float         = time.time()
+
+    def _q_count(self) -> int:
+        """Live question count — DB first, in-memory fallback."""
+        if self.db:
+            n = self.db.get_question_count()
+            if n:
+                return n
+        return len(self.quiz_manager.questions) if self.quiz_manager else 0
 
     # ─── Navigation helpers ───────────────────────────────────
 
@@ -295,7 +302,7 @@ class TelegramQuizBot:
     async def _send_owner_alert(self):
         """Send system-status report to owner (and developers)."""
         now = datetime.utcnow().strftime("%d %b %Y, %H:%M UTC")
-        total_questions = len(self.quiz_manager.questions) if self.quiz_manager else 0
+        total_questions = self._q_count()
         total_users = total_groups = 0
         if self.db:
             try:
@@ -377,8 +384,8 @@ class TelegramQuizBot:
     # ─── Greeting builder (shared by /start and broadcast) ───
 
     def _build_greeting(self, user_mention: str, bot_inline: str = "Miss Quiz 🎓") -> str:
-        q_count   = len(self.quiz_manager.questions) if self.quiz_manager else 0
-        q_display = UI.fmt_num(q_count) if q_count else "10,017"
+        q_count   = self._q_count()
+        q_display = UI.fmt_num(q_count)
         return (
             f"╔══════════════════════════════════════╗\n"
             f"║       🎓  <b>𝐂𝐋𝐀𝐓  𝐕𝐈𝐒𝐈𝐎𝐍</b>  🎓        ║\n"
@@ -693,25 +700,45 @@ class TelegramQuizBot:
 
     async def cmd_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                               edit_msg=None):
-        text = (
-            f"📚  <b>𝗩𝗜𝗘𝗪 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦</b>\n"
-            f"══════════════════\n\n"
-            f"📑  <b>𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘 𝗤𝗨𝗜𝗭 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦</b>\n\n"
-            f"• General Knowledge  🌍\n"
-            f"• Current Affairs  📰\n"
-            f"• Static GK  📚\n"
-            f"• Science &amp; Technology  🔬\n"
-            f"• History  📜\n"
-            f"• Geography  🗺\n"
-            f"• Economics  💰\n"
-            f"• Political Science  🏛\n"
-            f"• Constitution  📖\n"
-            f"• Constitution &amp; Law  ⚖\n"
-            f"• Arts &amp; Literature  🎭\n"
-            f"• Sports &amp; Games  🎮\n\n"
-            f"🎯  Stay tuned! More quizzes coming soon!\n"
-            f"🛠  Need help? Use /help for more commands!"
-        )
+        # Live category list + question counts straight from the database
+        cats = []
+        if self.db:
+            cats = self.db.get_category_counts()
+        if not cats and self.quiz_manager:
+            counts: dict = {}
+            for q in self.quiz_manager.questions:
+                c = q.get("category") or "General"
+                counts[c] = counts.get(c, 0) + 1
+            cats = [{"_id": c, "count": n}
+                    for c, n in sorted(counts.items(), key=lambda x: -x[1])]
+
+        total_q = sum(c.get("count", 0) for c in cats)
+        lines = [
+            f"📚  <b>𝗩𝗜𝗘𝗪 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦</b>",
+            f"══════════════════",
+            f"",
+            f"📑  <b>𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘 𝗤𝗨𝗜𝗭 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦</b>",
+            f"",
+        ]
+        if cats:
+            for c in cats:
+                name  = (c.get("_id") or "General")
+                safe  = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                emoji = UI.cat_emoji(name)
+                lines.append(f"{emoji}  {safe}  ›  <b>{UI.fmt_num(c.get('count', 0))}</b>")
+            lines += [
+                f"",
+                f"📚  Total  ›  <b>{UI.fmt_num(total_q)}</b> questions",
+                f"",
+                f"🎯  Use <code>/quiz &lt;category&gt;</code> to play a topic!",
+            ]
+        else:
+            lines += [
+                f"📭  No categories yet — question bank is empty.",
+                f"",
+                f"🛠  Use /addquiz or /importquiz to add questions.",
+            ]
+        text = "\n".join(lines)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎓 Start Quiz", callback_data="play_quiz"),
              InlineKeyboardButton("🎓 Commands",   callback_data="help")],
@@ -728,7 +755,7 @@ class TelegramQuizBot:
         if not msg:
             return
 
-        q_count = len(self.quiz_manager.questions)
+        q_count = self._q_count()
         bar     = UI.bar(min(100, ms / 10))
         if   ms < 100: status = "⚡ Blazing fast"
         elif ms < 300: status = "✅ Fast"
@@ -753,7 +780,7 @@ class TelegramQuizBot:
     async def cmd_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                        edit_msg=None):
         chat    = update.effective_chat
-        q_count = len(self.quiz_manager.questions)
+        q_count = self._q_count()
 
         _type_map = {
             "private":    "DM",
@@ -1197,7 +1224,7 @@ class TelegramQuizBot:
         else:
             wait = None
 
-        q_total = len(self.quiz_manager.questions)
+        q_total = self._q_count()
         d = {}
         if self.db:
             try:
@@ -1334,10 +1361,29 @@ class TelegramQuizBot:
             g_new_w    = d.get("g_new_w", 0)
             g_new_m    = d.get("g_new_m", 0)
             q_fmt      = UI.fmt_num(q_total)
+            q_cats     = d.get("q_cats", 0)
             qd_a, qd_c, qd_acc, qd_p = _qs(d.get("qs_d", {}))
             qw_a, qw_c, qw_acc, qw_p = _qs(d.get("qs_w", {}))
             qm_a, qm_c, qm_acc, qm_p = _qs(d.get("qs_m", {}))
             qa_a, qa_c, qa_acc, _     = _qs(d.get("qs_a", {}))
+
+            # Live system metrics
+            dbs = {}
+            bc_total = 0
+            if self.db:
+                try:
+                    dbs      = self.db.get_db_stats()
+                    bc_total = self.db.broadcasts_col.count_documents({})
+                except Exception as e:
+                    logger.error(f"botstats system metrics: {e}")
+            up = int(time.time() - self._start_ts)
+            if up >= 86400:
+                uptime_str = f"{up // 86400}d {(up % 86400) // 3600}h"
+            elif up >= 3600:
+                uptime_str = f"{up // 3600}h {(up % 3600) // 60}m"
+            else:
+                uptime_str = f"{up // 60}m {up % 60}s"
+
             text = (
                 f"📊  <b>𝐁𝐎𝐓  𝐀𝐍𝐀𝐋𝐘𝐓𝐈𝐂𝐒</b>\n"
                 f"{'━'*38}\n\n"
@@ -1361,7 +1407,8 @@ class TelegramQuizBot:
                 f"│  New This Month  ›  <b>+{g_new_m}</b>\n"
                 f"╰──────────────────────────────────────╯\n\n"
 
-                f"📚  <b>𝐐𝐔𝐄𝐒𝐓𝐈𝐎𝐍  𝐁𝐀𝐍𝐊</b>  ›  <b>{q_fmt}</b> questions\n\n"
+                f"📚  <b>𝐐𝐔𝐄𝐒𝐓𝐈𝐎𝐍  𝐁𝐀𝐍𝐊</b>  ›  <b>{q_fmt}</b> questions"
+                f"  ·  <b>{q_cats}</b> categories\n\n"
                 f"{'━'*38}\n\n"
 
                 f"🎯  QUIZ ACTIVITY\n\n"
@@ -1373,6 +1420,18 @@ class TelegramQuizBot:
                 f"  ·  <b>{qm_acc}</b>  ·  <b>{qm_p}</b> players\n"
                 f"All   ›  <b>{qa_a}</b> attempts  ·  <b>{qa_c}</b> correct"
                 f"  ·  <b>{qa_acc}</b>\n\n"
+
+                f"{'━'*38}\n\n"
+
+                f"🗄  <b>𝐒𝐘𝐒𝐓𝐄𝐌</b>\n"
+                f"╭──────────────────────────────────────╮\n"
+                f"│  Collections     ›  <b>{dbs.get('collections', '—')}</b>\n"
+                f"│  Documents       ›  <b>{UI.fmt_num(dbs.get('objects', 0))}</b>\n"
+                f"│  Data Size       ›  <b>{dbs.get('data_mb', 0)} MB</b>\n"
+                f"│  Storage Size    ›  <b>{dbs.get('storage_mb', 0)} MB</b>\n"
+                f"│  Broadcasts Sent ›  <b>{bc_total}</b>\n"
+                f"│  Uptime          ›  <b>{uptime_str}</b>\n"
+                f"╰──────────────────────────────────────╯\n\n"
 
                 f"{'━'*38}\n"
                 f"⚡  {COMMUNITY}  ·  CLAT Vision Analytics"
@@ -1430,23 +1489,14 @@ class TelegramQuizBot:
         return name[:width - 1] + "…" if len(name) > width else name
 
     def _lb_fetch(self, mode: str, chat_id: int) -> list:
-        key = f"{mode}:{chat_id if mode == 'group' else 0}"
-        now = time.time()
-        cached = self._lb_cache.get(key)
-        if cached and (now - cached[0]) < self._lb_cache_ttl:
-            return cached[1]
-
+        """Always fetch live from the database — no caching."""
         if mode == "group":
             data = self.quiz_manager.get_group_leaderboard(chat_id)
-            lb   = data.get("leaderboard", [])
-        elif self.db:
+            return data.get("leaderboard", [])
+        if self.db:
             days = self._LB_PERIOD.get(mode, 36500)
-            lb   = self.db.get_leaderboard_by_period(days=days, limit=self.LB_MAX_RANKS)
-        else:
-            lb = self.quiz_manager.get_leaderboard(limit=self.LB_MAX_RANKS)
-
-        self._lb_cache[key] = (now, lb)
-        return lb
+            return self.db.get_leaderboard_by_period(days=days, limit=self.LB_MAX_RANKS)
+        return self.quiz_manager.get_leaderboard(limit=self.LB_MAX_RANKS)
 
     def _lb_resolve_names(self, uids: list) -> dict:
         names: dict = {}
@@ -1746,7 +1796,7 @@ class TelegramQuizBot:
 
         added   = result.get("added", 0)
         dups    = result.get("rejected", {}).get("duplicates", 0)
-        total   = len(self.quiz_manager.questions)
+        total   = self._q_count()
         mention = UI.mention(user.id, UI.display_name(user))
 
         if added > 0:
@@ -2050,7 +2100,7 @@ class TelegramQuizBot:
         await asyncio.sleep(0.3)
 
         mention = OWNER_LINK if self._is_owner(user.id) else UI.mention(user.id, UI.display_name(user))
-        q_count = len(self.quiz_manager.questions)
+        q_count = self._q_count()
         chats   = len(self.quiz_manager.active_chats)
         users = groups = 0
         if self.db:
@@ -2405,7 +2455,7 @@ class TelegramQuizBot:
         skipped  = result.get("skipped", 0)
         failed   = result.get("failed", 0)
         errors   = result.get("errors", [])
-        total_q  = len(self.quiz_manager.questions)
+        total_q  = self._q_count()
 
         rate = int(imported / max(detected, 1) * 100)
         bar  = UI.bar(rate)
