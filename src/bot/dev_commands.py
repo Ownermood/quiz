@@ -993,7 +993,7 @@ class DeveloperCommands:
                 
                 # Get error rate
                 error_stats = self.db.get_error_rate_stats(1)
-                error_rate = error_stats.get('error_rate', 0)
+                error_rate = error_stats.get('rate', 0)
                 
                 # Get top commands (last 7 days)
                 command_usage = self.db.get_command_usage_stats(7)
@@ -1667,27 +1667,24 @@ class DeveloperCommands:
                             logger.warning(f"Failed to send to group {group['chat_id']}: {error_msg}")
                             fail_count += 1
             
-            # Store sent messages in database for delbroadcast feature
-            if sent_messages:
-                self.db.save_broadcast({
-                    "broadcast_id": broadcast_id,
-                    "user_id": update.effective_user.id,
-                    "messages": sent_messages,
-                })
-                logger.info(f"Saved broadcast {broadcast_id} to database with {len(sent_messages)} messages")
-            
-            # Log broadcast to database for historical tracking
+            # Store broadcast in database (single doc keeps messages + stats together
+            # so delbroadcast can always find the messages via get_latest_broadcast)
             total_targets = len(users) + len(groups)
             message_text = (context.user_data.get('broadcast_message', '') if context.user_data else '')[:500] if broadcast_type == 'text' else f"[{broadcast_type.upper()} BROADCAST]"
-            self.db.log_broadcast({
-                "admin_id":      update.effective_user.id,
-                "message_text":  message_text,
-                "total_targets": total_targets,
-                "sent_count":    success_count,
-                "failed_count":  fail_count,
-                "skipped_count": skipped_count,
-                "created_at":    datetime.utcnow().isoformat(),
-            })
+            if sent_messages:
+                self.db.save_broadcast({
+                    "broadcast_id":  broadcast_id,
+                    "user_id":       update.effective_user.id,
+                    "messages":      sent_messages,
+                    "admin_id":      update.effective_user.id,
+                    "message_text":  message_text,
+                    "total_targets": total_targets,
+                    "sent_count":    success_count,
+                    "failed_count":  fail_count,
+                    "skipped_count": skipped_count,
+                    "created_at":    datetime.utcnow().isoformat(),
+                })
+                logger.info(f"Saved broadcast {broadcast_id} to database with {len(sent_messages)} messages")
             
             # Get stats for result message (from all users, not just PM users)
             all_users = self.db.get_all_users_stats()
