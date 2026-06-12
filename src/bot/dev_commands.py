@@ -3,6 +3,7 @@ Developer Commands Module for Telegram Quiz Bot
 Handles all developer-only commands with enhanced features
 """
 
+import html
 import logging
 import asyncio
 import sys
@@ -12,7 +13,7 @@ import json
 import time
 from datetime import datetime
 from typing import Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from src.core import config
@@ -745,23 +746,25 @@ class DeveloperCommands:
                     )
                     
                     display_name = first_name or username or f"User {user_id}"
-                    dev_mention = f'<a href="tg://user?id={user_id}">{display_name}</a>'
+                    dev_mention = f'<b>{html.escape(str(display_name))}</b>'
                     reply = await update.message.reply_text(
                         f"✅ Developer added successfully!\n\n"
                         f"👤 {dev_mention}\n"
                         f"🆔 ID: {user_id}",
-                        parse_mode=ParseMode.HTML
+                        parse_mode=ParseMode.HTML,
+                        link_preview_options=LinkPreviewOptions(is_disabled=True)
                     )
                 except Exception as e:
                     logger.warning(f"Could not fetch user info for {user_id}: {e}")
                     # Add without user info
                     self.db.add_developer(user_id, added_by=update.effective_user.id)
-                    dev_mention = f'<a href="tg://user?id={user_id}">User {user_id}</a>'
+                    dev_mention = f'<b>User {user_id}</b>'
                     reply = await update.message.reply_text(
                         f"✅ Developer added successfully!\n\n"
                         f"👤 {dev_mention}\n"
                         f"⚠️ Could not fetch user details",
-                        parse_mode=ParseMode.HTML
+                        parse_mode=ParseMode.HTML,
+                        link_preview_options=LinkPreviewOptions(is_disabled=True)
                     )
 
                 logger.info(f"Developer {user_id} added by {update.effective_user.id}")
@@ -798,23 +801,25 @@ class DeveloperCommands:
                         )
                         
                         display_name = first_name or username or f"User {new_dev_id}"
-                        dev_mention = f'<a href="tg://user?id={new_dev_id}">{display_name}</a>'
+                        dev_mention = f'<b>{html.escape(str(display_name))}</b>'
                         reply = await update.message.reply_text(
                             f"✅ Developer added successfully!\n\n"
                             f"👤 {dev_mention}\n"
                             f"🆔 ID: {new_dev_id}",
-                            parse_mode=ParseMode.HTML
+                            parse_mode=ParseMode.HTML,
+                            link_preview_options=LinkPreviewOptions(is_disabled=True)
                         )
                     except Exception as e:
                         logger.warning(f"Could not fetch user info for {new_dev_id}: {e}")
                         # Add without user info
                         self.db.add_developer(new_dev_id, added_by=update.effective_user.id)
-                        dev_mention = f'<a href="tg://user?id={new_dev_id}">User {new_dev_id}</a>'
+                        dev_mention = f'<b>User {new_dev_id}</b>'
                         reply = await update.message.reply_text(
                             f"✅ Developer added successfully!\n\n"
                             f"👤 {dev_mention}\n"
                             f"⚠️ Could not fetch user details",
-                            parse_mode=ParseMode.HTML
+                            parse_mode=ParseMode.HTML,
+                            link_preview_options=LinkPreviewOptions(is_disabled=True)
                         )
                     
                     logger.info(f"Developer {new_dev_id} added by {update.effective_user.id}")
@@ -869,7 +874,7 @@ class DeveloperCommands:
                     logger.debug(f"Could not fetch owner info: {e}")
                     owner_name = "Owner"
 
-                owner_mention = f'<a href="tg://user?id={config.OWNER_ID}">{owner_name}</a>'
+                owner_mention = f'<b>{html.escape(str(owner_name))}</b>'
                 dev_text += f"• {owner_mention} (ID: {config.OWNER_ID})\n"
 
                 # Get WIFU info if exists
@@ -878,11 +883,11 @@ class DeveloperCommands:
                         wifu_user = await context.bot.get_chat(config.WIFU_ID)
                         wifu_name = wifu_user.first_name or "Developer"
                         # Check if name has emoji, otherwise it might be the second developer
-                        wifu_mention = f'<a href="tg://user?id={config.WIFU_ID}">{wifu_name}</a>'
+                        wifu_mention = f'<b>{html.escape(str(wifu_name))}</b>'
                         dev_text += f"• {wifu_mention} (ID: {config.WIFU_ID})\n"
                     except Exception as e:
                         logger.debug(f"Could not fetch WIFU info: {e}")
-                        wifu_mention = f'<a href="tg://user?id={config.WIFU_ID}">Developer</a>'
+                        wifu_mention = f'<b>Developer</b>'
                         dev_text += f"• {wifu_mention} (ID: {config.WIFU_ID})\n"
 
                 # Show other developers from database
@@ -892,15 +897,16 @@ class DeveloperCommands:
                         try:
                             dev_user = await context.bot.get_chat(dev_uid)
                             dev_name = dev_user.first_name or f"User{dev_uid}"
-                            d_mention = f'<a href="tg://user?id={dev_uid}">{dev_name}</a>'
+                            d_mention = f'<b>{html.escape(str(dev_name))}</b>'
                             dev_text += f"• {d_mention} (ID: {dev_uid})\n"
                         except Exception as e:
                             logger.debug(f"Could not fetch developer info: {e}")
                             d_name = dev.get('username') or dev.get('first_name') or f"User{dev_uid}"
-                            d_mention = f'<a href="tg://user?id={dev_uid}">{d_name}</a>'
+                            d_mention = f'<b>{html.escape(str(d_name))}</b>'
                             dev_text += f"• {d_mention} (ID: {dev_uid})\n"
 
-                reply = await update.message.reply_text(dev_text, parse_mode=ParseMode.HTML)
+                reply = await update.message.reply_text(dev_text, parse_mode=ParseMode.HTML,
+                                                        link_preview_options=LinkPreviewOptions(is_disabled=True))
                 await self.auto_clean_message(update.message, reply)
             
             else:

@@ -3,6 +3,7 @@ CLAT VISION QUIZ BOT — PREMIUM HANDLER ENGINE
 Ultra-premium redesign: modern, elegant, professional.
 """
 
+import html
 import logging
 import asyncio
 import os
@@ -13,7 +14,7 @@ from datetime import datetime
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    BotCommand, Poll
+    BotCommand, Poll, LinkPreviewOptions
 )
 from telegram.ext import (
     Application, CommandHandler, PollAnswerHandler,
@@ -26,8 +27,9 @@ from telegram.error import TelegramError, Forbidden, BadRequest
 logger   = logging.getLogger(__name__)
 OWNER_ID   = int(os.environ.get("OWNER_ID", "8403136097"))
 OWNER_NAME = "🌷 𝐂𝐋𝐀𝐓 𝐎𝐖𝐍𝐄𝐑 🌷"
-OWNER_LINK = f'<a href="https://t.me/CLAT_OWNER">{OWNER_NAME}</a>'
+OWNER_LINK = OWNER_NAME  # plain text only — tg profile links expose user bios
 COMMUNITY  = "@CLAT_Vision"
+_NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -118,8 +120,8 @@ class UI:
     # ── Inline mention ────────────────────────────────────────
     @staticmethod
     def mention(user_id: int, name: str) -> str:
-        safe = name.replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;")
-        return f'<a href="tg://user?id={user_id}">{safe}</a>'
+        """Return a bold display name. No tg:// link — avoids profile card previews."""
+        return f'<b>{html.escape(str(name))}</b>'
 
     # ── Display name (HTML-safe) ──────────────────────────────
     @staticmethod
@@ -236,7 +238,8 @@ class TelegramQuizBot:
 
         if target:
             try:
-                await target.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                await target.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb,
+                                       link_preview_options=_NO_PREVIEW)
                 if user:
                     self._active_msg[user.id] = target
                 return target
@@ -433,7 +436,8 @@ class TelegramQuizBot:
         for uid in recipients:
             try:
                 await self.application.bot.send_message(
-                    chat_id=uid, text=text, parse_mode=ParseMode.HTML)
+                    chat_id=uid, text=text, parse_mode=ParseMode.HTML,
+                    link_preview_options=_NO_PREVIEW)
             except Exception as e:
                 logger.warning(f"[STARTUP] Owner alert to {uid} failed: {e}")
 
@@ -445,11 +449,7 @@ class TelegramQuizBot:
         if not users:
             logger.info("[STARTUP] No PM-accessible users — skipping broadcast")
             return
-        try:
-            bot_info   = await self.application.bot.get_me()
-            bot_inline = f'<a href="https://t.me/{bot_info.username}">Miss Quiz 🎓</a>'
-        except Exception:
-            bot_inline = "Miss Quiz 🎓"
+        bot_inline = "Miss Quiz 🎓"
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎓 Start Quiz",      callback_data="play_quiz"),
@@ -471,7 +471,8 @@ class TelegramQuizBot:
                 text    = self._build_greeting(mention, bot_inline)
                 msg     = await self.application.bot.send_message(
                     chat_id=uid, text=text,
-                    parse_mode=ParseMode.HTML, reply_markup=kb)
+                    parse_mode=ParseMode.HTML, reply_markup=kb,
+                    link_preview_options=_NO_PREVIEW)
                 sent.append((uid, msg.message_id))
             except (Forbidden, BadRequest):
                 pass
@@ -621,7 +622,7 @@ class TelegramQuizBot:
                      reply_markup=None, **kw) -> Optional[Any]:
         """Smart reply — auto-injects thread_id for forum topics."""
         tid    = get_thread_id(update)
-        kwargs = {"parse_mode": parse_mode}
+        kwargs = {"parse_mode": parse_mode, "link_preview_options": _NO_PREVIEW}
         if reply_markup:
             kwargs["reply_markup"] = reply_markup
         if tid:
@@ -642,7 +643,7 @@ class TelegramQuizBot:
     async def _edit(self, msg, text: str, reply_markup=None):
         """Safe message edit."""
         try:
-            kwargs = {"parse_mode": ParseMode.HTML}
+            kwargs = {"parse_mode": ParseMode.HTML, "link_preview_options": _NO_PREVIEW}
             if reply_markup:
                 kwargs["reply_markup"] = reply_markup
             await msg.edit_text(text, **kwargs)
@@ -700,11 +701,7 @@ class TelegramQuizBot:
         if not is_pm:
             self.ensure_group_registered(update, context, source="cmd-start")
 
-        try:
-            bot_info   = await self.application.bot.get_me()
-            bot_inline = f'<a href="https://t.me/{bot_info.username}">Miss Quiz 🎓</a>'
-        except Exception:
-            bot_inline = "Miss Quiz 🎓"
+        bot_inline = "Miss Quiz 🎓"
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎓 Start Quiz",       callback_data="play_quiz"),
@@ -2601,7 +2598,8 @@ class TelegramQuizBot:
         for u in users:
             try:
                 m = await context.bot.send_message(
-                    chat_id=u["user_id"], text=raw, parse_mode=ParseMode.HTML)
+                    chat_id=u["user_id"], text=raw, parse_mode=ParseMode.HTML,
+                    link_preview_options=_NO_PREVIEW)
                 self._broadcast_sent.append((u["user_id"], m.message_id))
                 sent += 1
                 await asyncio.sleep(0.05)
@@ -2614,7 +2612,8 @@ class TelegramQuizBot:
         for g in groups:
             tid = g.get("message_thread_id")
             try:
-                kwargs = {"chat_id": g["chat_id"], "text": raw, "parse_mode": ParseMode.HTML}
+                kwargs = {"chat_id": g["chat_id"], "text": raw, "parse_mode": ParseMode.HTML,
+                          "link_preview_options": _NO_PREVIEW}
                 if tid: kwargs["message_thread_id"] = tid
                 gm = await context.bot.send_message(**kwargs)
                 self._broadcast_sent.append((g["chat_id"], gm.message_id))
@@ -2624,7 +2623,8 @@ class TelegramQuizBot:
                 if any(w in str(e).lower() for w in ("topic", "closed", "thread")):
                     try:
                         gm = await context.bot.send_message(
-                            chat_id=g["chat_id"], text=raw, parse_mode=ParseMode.HTML)
+                            chat_id=g["chat_id"], text=raw, parse_mode=ParseMode.HTML,
+                            link_preview_options=_NO_PREVIEW)
                         self._broadcast_sent.append((g["chat_id"], gm.message_id))
                         sent += 1
                     except Exception:
