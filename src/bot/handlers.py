@@ -183,6 +183,7 @@ class TelegramQuizBot:
         self._nav_history: dict       = {}
         self._broadcast_sent: list    = []
         self._start_ts: float         = time.time()
+        self._seen_groups: set        = set()  # in-session cache to limit upsert rate
 
     def _q_count(self) -> int:
         """Live question count — DB first, in-memory fallback."""
@@ -443,6 +444,18 @@ class TelegramQuizBot:
         app.add_handler(ChatMemberHandler(
             self.handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
+        # Group reconciliation commands
+        app.add_handler(CommandHandler("reggroup",   self.cmd_reggroup))
+        app.add_handler(CommandHandler("syncgroups", self.cmd_syncgroups))
+
+        # Passive group auto-registration — handler group 1 so it runs alongside
+        # (not instead of) normal command handlers in group 0.
+        # Catches all groups that existed before my_chat_member tracking was added.
+        app.add_handler(
+            MessageHandler(filters.ChatType.GROUPS, self._passive_group_register),
+            group=1
+        )
+
         # Poll + Callbacks
         app.add_handler(PollAnswerHandler(self.handle_poll_answer))
         app.add_handler(CallbackQueryHandler(
@@ -672,6 +685,105 @@ class TelegramQuizBot:
                     logger.info(f"[GROUP] Bot removed from {chat.id} ({chat.title})")
                 except Exception as e:
                     logger.error(f"handle_my_chat_member remove: {e}")
+
+    # ─── Passive group auto-registration ─────────────────────
+    # Fires in PTB handler group 1 for EVERY message from a group,
+    # capturing groups that existed before my_chat_member tracking was added.
+
+    async def _passive_group_register(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Register any group that sends a message — runs in handler group 1."""
+        chat = update.effective_chat
+        if not chat or chat.type not in ("group", "supergroup"):
+            return
+        if not self.db:
+            return
+        if chat.id in self._seen_groups:
+            return  # already registered this session, skip redundant upsert
+        try:
+            self.db.register_group_interaction(
+                chat_id  = chat.id,
+                thread_id= get_thread_id(update),
+                title    = chat.title or "",
+                username = getattr(chat, "username", "") or ""
+            )
+            self._seen_groups.add(chat.id)
+            logger.debug(f"[PASSIVE] Group auto-registered: {chat.id} ({chat.title})")
+        except Exception as e:
+            logger.error(f"_passive_group_register {chat.id}: {e}")
+
+    # ─── /reggroup ───────────────────────────────────────────
+
+    async def cmd_reggroup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Owner/admin command: explicitly register current group in DB."""
+        chat = update.effective_chat
+        user = update.effective_user
+        if not chat or chat.type not in ("group", "supergroup"):
+            if update.effective_message:
+                await update.effective_message.reply_text("⚠️ Run this command inside the group.")
+            return
+        if not await self._is_authorized(user.id):
+            await self._unauthorized(update)
+            return
+        if not self.db:
+            if update.effective_message:
+                await update.effective_message.reply_text("❌ No database connection.")
+            return
+        try:
+            self.db.register_group_interaction(
+                chat_id  = chat.id,
+                thread_id= get_thread_id(update),
+                title    = chat.title or "",
+                username = getattr(chat, "username", "") or ""
+            )
+            self._seen_groups.add(chat.id)
+            total = len(self.db.get_all_groups())
+            msg = await update.effective_message.reply_text(
+                f"✅ <b>Group Registered</b>\n\n"
+                f"  ID    › <code>{chat.id}</code>\n"
+                f"  Name  › {chat.title}\n\n"
+                f"  Total groups in DB: <b>{total}</b>",
+                parse_mode="HTML"
+            )
+            logger.info(f"[REGGROUP] {chat.id} ({chat.title}) registered by {user.id}")
+        except Exception as e:
+            logger.error(f"cmd_reggroup: {e}")
+            if update.effective_message:
+                await update.effective_message.reply_text(f"❌ Registration failed: {e}")
+
+    # ─── /syncgroups ─────────────────────────────────────────
+
+    async def cmd_syncgroups(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Owner command: show DB group count and recovery instructions."""
+        if not await self._is_authorized(update.effective_user.id):
+            await self._unauthorized(update)
+            return
+        if not self.db:
+            await self._reply(update, "❌ No database connection.")
+            return
+        groups = self.db.get_all_groups()
+        count  = len(groups)
+        lines  = [
+            "📋 <b>GROUP SYNC REPORT</b>",
+            f"{UI.LINE}",
+            f"",
+            f"  Groups in DB     ›  <b>{count}</b>",
+            f"  Session cache    ›  <b>{len(self._seen_groups)}</b>",
+            f"",
+            f"<b>Registered groups:</b>",
+        ]
+        for g in groups[:30]:
+            gid   = g.get("chat_id", "?")
+            title = g.get("title") or g.get("username") or str(gid)
+            lines.append(f"  • <code>{gid}</code>  {title}")
+        if count > 30:
+            lines.append(f"  … and {count - 30} more")
+        lines += [
+            f"",
+            f"<b>To register missing groups:</b>",
+            f"  Run <code>/reggroup</code> inside each unregistered group.",
+            f"  OR: any message from a group auto-registers it (passive tracking active).",
+        ]
+        await self._reply(update, "\n".join(lines))
 
     # ─── /help ───────────────────────────────────────────────
 
