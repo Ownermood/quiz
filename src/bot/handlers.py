@@ -280,14 +280,28 @@ class TelegramQuizBot:
     # ─── Initialization ──────────────────────────────────────
 
     async def initialize(self, token: str):
-        self.application = Application.builder().token(token).build()
+        from telegram.ext import PicklePersistence
+        persistence = PicklePersistence(filepath="data/bot_persistence.pkl")
+        self.application = (
+            Application.builder()
+            .token(token)
+            .persistence(persistence)
+            .build()
+        )
         self._register_handlers()
         await self.application.initialize()
         await self._set_commands()
         logger.info("✅ Bot initialized — polling mode")
 
     async def initialize_webhook(self, token: str, webhook_url: str):
-        self.application = Application.builder().token(token).build()
+        from telegram.ext import PicklePersistence
+        persistence = PicklePersistence(filepath="data/bot_persistence.pkl")
+        self.application = (
+            Application.builder()
+            .token(token)
+            .persistence(persistence)
+            .build()
+        )
         self._register_handlers()
         await self.application.initialize()
         await self.application.bot.set_webhook(url=webhook_url)

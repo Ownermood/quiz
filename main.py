@@ -85,6 +85,8 @@ def run_polling_mode(config: Config):
 
     logger.info("🚀 Starting in POLLING mode")
 
+    os.makedirs("data", exist_ok=True)
+
     cleanup_webhook_sync(config.telegram_token)
 
     mongo_url = os.environ.get("MONGODB_URL", "mongodb://localhost:27017")
