@@ -114,17 +114,42 @@ def run_polling_mode(config: Config):
         logger.info("✅ Bot initialized — handlers registered")
         logger.info(f"✅ Questions loaded: {len(quiz_mgr.questions)}")
 
-        # Pre-populate active_chats from MongoDB groups for restart resilience
+        # Startup group synchronization
+        # ─ Load all groups from DB, validate records, seed in-session cache ─
         try:
             groups = db_mgr.get_all_groups()
+            valid_groups = []
+            invalid_removed = 0
             for g in groups:
                 cid = g.get("chat_id")
-                if cid and cid not in quiz_mgr.active_chats:
+                if not cid or not isinstance(cid, int):
+                    # Remove corrupt record with missing or non-integer chat_id
+                    try:
+                        if cid:
+                            db_mgr.remove_inactive_group(cid)
+                        invalid_removed += 1
+                    except Exception:
+                        pass
+                    continue
+                valid_groups.append(g)
+                # Seed passive-registration session cache so startup groups
+                # don't cause an upsert on first message (title already current)
+                bot._seen_groups.add(cid)
+                if cid not in quiz_mgr.active_chats:
                     quiz_mgr.active_chats.append(cid)
-            if groups:
-                logger.info(f"✅ Pre-loaded {len(groups)} active groups from DB")
+
+            logger.info(
+                f"✅ Startup group sync: {len(valid_groups)} valid groups loaded"
+                + (f", {invalid_removed} invalid records removed" if invalid_removed else "")
+            )
+            if valid_groups:
+                for g in valid_groups:
+                    logger.info(
+                        f"   [GROUP LOADED] id={g['chat_id']} "
+                        f"title={g.get('title', '')!r}"
+                    )
         except Exception as e:
-            logger.warning(f"Could not pre-load groups: {e}")
+            logger.warning(f"Startup group sync failed: {e}")
 
         scheduler = AutoQuizScheduler(bot, quiz_mgr, db_manager=db_mgr, interval_minutes=30)
 
