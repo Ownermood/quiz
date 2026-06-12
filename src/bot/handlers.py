@@ -17,7 +17,8 @@ from telegram import (
 )
 from telegram.ext import (
     Application, CommandHandler, PollAnswerHandler,
-    CallbackQueryHandler, MessageHandler, filters, ContextTypes
+    CallbackQueryHandler, MessageHandler, ChatMemberHandler,
+    filters, ContextTypes
 )
 from telegram.constants import ParseMode
 from telegram.error import TelegramError, Forbidden, BadRequest
@@ -338,7 +339,7 @@ class TelegramQuizBot:
                 logger.warning(f"[STARTUP] Owner alert to {uid} failed: {e}")
 
     async def _send_startup_broadcast(self):
-        """Send greeting to all PM-accessible users; auto-delete after 30 s."""
+        """Send greeting to all PM-accessible users on startup."""
         if not self.db:
             return
         users = self.db.get_pm_accessible_users()
@@ -437,6 +438,10 @@ class TelegramQuizBot:
         app.add_handler(CommandHandler("delbroadcast",  self.cmd_delbroadcast))
         app.add_handler(CommandHandler("reload",        self.cmd_reload))
         app.add_handler(CommandHandler("restart",     self.cmd_restart))
+
+        # Group membership tracking (fires when bot is added/removed from groups)
+        app.add_handler(ChatMemberHandler(
+            self.handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
 
         # Poll + Callbacks
         app.add_handler(PollAnswerHandler(self.handle_poll_answer))
@@ -556,14 +561,14 @@ class TelegramQuizBot:
             pass
 
     def _get_user_rank_position(self, user_id: int) -> Optional[int]:
-        """Return global rank position (1-indexed) or None."""
-        try:
-            lb = self.quiz_manager.get_leaderboard(limit=200)
-            for i, entry in enumerate(lb):
-                if entry.get("user_id") == user_id:
-                    return i + 1
-        except Exception:
-            pass
+        """Return global rank position (1-indexed) or None — always from DB."""
+        if self.db:
+            try:
+                info = self.db.get_user_rank_in_period(user_id, days=36500)
+                rank = info.get("rank", 0)
+                return rank if rank > 0 else None
+            except Exception:
+                pass
         return None
 
     # ─── /start ──────────────────────────────────────────────
@@ -573,11 +578,24 @@ class TelegramQuizBot:
         user    = update.effective_user
         name    = UI.display_name(user)
         mention = UI.mention(user.id, name)
-        is_pm   = update.effective_chat.type == "private"
+        chat    = update.effective_chat
+        is_pm   = chat.type == "private"
 
         # Reset nav history to home
         if user:
             self._nav_clear(user.id)
+
+        # Track groups that run /start
+        if not is_pm and self.db:
+            try:
+                self.db.register_group_interaction(
+                    chat_id=chat.id,
+                    thread_id=get_thread_id(update),
+                    title=chat.title or "",
+                    username=getattr(chat, "username", "") or ""
+                )
+            except Exception:
+                pass
 
         try:
             bot_info   = await self.application.bot.get_me()
@@ -624,6 +642,36 @@ class TelegramQuizBot:
                 })
             except Exception as e:
                 logger.error(f"upsert_user: {e}")
+
+    # ─── Bot membership change handler ───────────────────────
+
+    async def handle_my_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Register group when bot is added; remove record when bot is kicked."""
+        member = update.my_chat_member
+        if not member:
+            return
+        chat = member.chat
+        if chat.type not in ("group", "supergroup"):
+            return
+        new_status = member.new_chat_member.status
+        if new_status in ("member", "administrator"):
+            if self.db:
+                try:
+                    self.db.register_group_interaction(
+                        chat_id=chat.id,
+                        title=chat.title or "",
+                        username=getattr(chat, "username", "") or ""
+                    )
+                    logger.info(f"[GROUP] Bot added to {chat.id} ({chat.title})")
+                except Exception as e:
+                    logger.error(f"handle_my_chat_member add: {e}")
+        elif new_status in ("left", "kicked", "banned"):
+            if self.db:
+                try:
+                    self.db.remove_inactive_group(chat.id)
+                    logger.info(f"[GROUP] Bot removed from {chat.id} ({chat.title})")
+                except Exception as e:
+                    logger.error(f"handle_my_chat_member remove: {e}")
 
     # ─── /help ───────────────────────────────────────────────
 
@@ -936,23 +984,20 @@ class TelegramQuizBot:
                     is_correct=is_correct,
                     category=data.get("category", ""))
                 self.db.upsert_user(user_id, {
-                    "user_id":       user_id,
-                    "last_seen":     datetime.utcnow().isoformat(),
-                    "total_answers": self.quiz_manager.get_score(user_id),
+                    "user_id":   user_id,
+                    "last_seen": datetime.utcnow().isoformat(),
                 })
             except Exception as e:
                 logger.error(f"DB poll_answer: {e}")
 
             # Record quiz result for Progress Center
             try:
-                score_val   = 1 if is_correct else 0
-                wrong_val   = 0 if is_correct else 1
                 self.db.record_quiz_result(user_id, {
                     "correct":  1 if is_correct else 0,
                     "wrong":    0 if is_correct else 1,
                     "skipped":  0,
                     "total":    1,
-                    "score":    score_val,
+                    "score":    1 if is_correct else 0,
                     "category": data.get("category", "General"),
                 })
             except Exception as e:
