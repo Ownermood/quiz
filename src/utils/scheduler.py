@@ -108,6 +108,12 @@ class AutoQuizScheduler:
                 )
                 self.last_poll_ids[chat_id] = msg.message_id
                 self._persist_poll_id(chat_id, msg.message_id)
+                if self.db and q_id:
+                    try:
+                        self.db.save_poll_mapping(
+                            str(msg.poll.id), q_id, chat_id=chat_id)
+                    except Exception:
+                        pass
                 logger.info(f"Auto quiz sent to {chat_id} — msg_id: {msg.message_id}")
 
             except Exception as e:

@@ -183,11 +183,14 @@ class DatabaseManager:
 
     # ── Poll → Question mapping ───────────────────────────────────────────────
 
-    def save_poll_mapping(self, poll_id: str, quiz_id: int):
+    def save_poll_mapping(self, poll_id: str, quiz_id: int, chat_id: int = None):
         try:
+            data: dict = {"quiz_id": quiz_id}
+            if chat_id and isinstance(chat_id, int) and chat_id < 0:
+                data["chat_id"] = chat_id  # persist for startup group recovery
             self.poll_map_col.update_one(
                 {"poll_id": poll_id},
-                {"$set": {"quiz_id": quiz_id}},
+                {"$set": data},
                 upsert=True
             )
         except Exception as e:
@@ -560,6 +563,15 @@ class DatabaseManager:
                     ids.add(cid)
         except Exception as e:
             logger.warning(f"history scan auto_quiz_state: {e}")
+        try:
+            for doc in self.poll_map_col.find(
+                {"chat_id": {"$exists": True}}, {"chat_id": 1, "_id": 0}
+            ):
+                cid = doc.get("chat_id")
+                if isinstance(cid, int) and cid < 0:
+                    ids.add(cid)
+        except Exception as e:
+            logger.warning(f"history scan poll_map: {e}")
         return ids
 
     def remove_inactive_group(self, chat_id: int) -> bool:

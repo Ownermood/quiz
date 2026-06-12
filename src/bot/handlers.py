@@ -1189,7 +1189,8 @@ class TelegramQuizBot:
             poll_id  = poll_msg.poll.id
 
             if self.db and q_id:
-                self.db.save_poll_mapping(str(poll_id), q_id)
+                group_cid = chat.id if chat.type in ("group", "supergroup") else None
+                self.db.save_poll_mapping(str(poll_id), q_id, chat_id=group_cid)
 
             context.bot_data[f"poll_{poll_id}"] = {
                 "question_id":       q_id,
