@@ -533,6 +533,34 @@ class DatabaseManager:
     def get_all_groups(self) -> List[Dict]:
         return list(self.groups_col.find({}, {"_id": 0}))
 
+    def get_registered_group_ids(self) -> set:
+        """Return the set of chat_ids already in groups_col."""
+        return {
+            doc["chat_id"]
+            for doc in self.groups_col.find({}, {"chat_id": 1, "_id": 0})
+            if isinstance(doc.get("chat_id"), int)
+        }
+
+    def get_known_group_ids_from_history(self) -> set:
+        """Scan activity history and auto_quiz_state for group chat_ids
+        (negative integers) that have been seen before but may not be in
+        groups_col — used for startup recovery."""
+        ids: set = set()
+        try:
+            for cid in self.activities_col.distinct("chat_id"):
+                if isinstance(cid, int) and cid < 0:
+                    ids.add(cid)
+        except Exception as e:
+            logger.warning(f"history scan activities: {e}")
+        try:
+            for doc in self.db["auto_quiz_state"].find({}, {"chat_id": 1, "_id": 0}):
+                cid = doc.get("chat_id")
+                if isinstance(cid, int) and cid < 0:
+                    ids.add(cid)
+        except Exception as e:
+            logger.warning(f"history scan auto_quiz_state: {e}")
+        return ids
+
     def remove_inactive_group(self, chat_id: int) -> bool:
         result = self.groups_col.delete_one({"chat_id": chat_id})
         return result.deleted_count > 0

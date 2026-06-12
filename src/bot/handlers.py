@@ -824,7 +824,64 @@ class TelegramQuizBot:
         Thin wrapper around ensure_group_registered; no logic here."""
         self.ensure_group_registered(update, context, source="passive-message")
 
+    async def recover_groups_from_history(self) -> None:
+        """Startup recovery: find every group chat_id in activity history that is
+        not yet in the groups collection, call getChat() for each, and register it.
 
+        This runs ONCE at startup and immediately fixes the gap where the bot is
+        in 22+ groups but only 5 are in the DB — with zero manual intervention.
+        """
+        if not self.db or not self.application:
+            return
+        try:
+            known_ids   = self.db.get_known_group_ids_from_history()
+            registered  = self.db.get_registered_group_ids()
+            missing_ids = known_ids - registered
+
+            if not missing_ids:
+                logger.info("[STARTUP RECOVERY] No unregistered groups found in history")
+                return
+
+            logger.info(
+                f"[STARTUP RECOVERY] {len(missing_ids)} group IDs in history but "
+                f"not in DB — fetching metadata from Telegram API"
+            )
+
+            recovered = skipped = failed = 0
+            for chat_id in missing_ids:
+                try:
+                    chat = await self.application.bot.get_chat(chat_id)
+                    if chat.type in ("group", "supergroup"):
+                        self.db.register_group_interaction(
+                            chat_id  = chat.id,
+                            title    = chat.title or "",
+                            username = getattr(chat, "username", "") or ""
+                        )
+                        self._seen_groups.add(chat.id)
+                        logger.info(
+                            f"[GROUP RECOVERED] id={chat_id} title={chat.title!r}"
+                        )
+                        recovered += 1
+                    else:
+                        skipped += 1
+                except Forbidden:
+                    logger.info(
+                        f"[GROUP SKIP] id={chat_id} — bot no longer a member"
+                    )
+                    skipped += 1
+                except BadRequest as e:
+                    logger.warning(f"[GROUP SKIP] id={chat_id} — {e}")
+                    skipped += 1
+                except Exception as e:
+                    logger.error(f"[GROUP RECOVER FAIL] id={chat_id}: {e}")
+                    failed += 1
+
+            logger.info(
+                f"[STARTUP RECOVERY] Done — recovered={recovered} "
+                f"skipped={skipped} failed={failed}"
+            )
+        except Exception as e:
+            logger.error(f"recover_groups_from_history: {e}")
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                        edit_msg=None):

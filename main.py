@@ -161,6 +161,11 @@ def run_polling_mode(config: Config):
                 drop_pending_updates=True,
                 allowed_updates=["message", "poll_answer", "callback_query", "my_chat_member"],
             )
+            # Recover groups from history NOW — bot is connected, get_chat() works.
+            # Scans activities + auto_quiz_state for group IDs not yet in groups_col,
+            # calls getChat() for each, and registers them immediately.
+            # This fixes the gap where bot is in 22+ groups but DB only shows 5.
+            await bot.recover_groups_from_history()
             try:
                 await asyncio.Event().wait()
             finally:
