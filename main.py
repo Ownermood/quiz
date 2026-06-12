@@ -158,6 +158,8 @@ def run_polling_mode(config: Config):
         logger.info("🎯 Bot is live! Listening for messages… (Ctrl+C to stop)")
         async with bot.application:
             await bot.application.start()
+            # Restore poll mappings from MongoDB + pickle BEFORE polling starts
+            poll_restore_stats = await bot.restore_poll_mappings_to_bot_data()
             scheduler.start()
             await bot.application.updater.start_polling(
                 drop_pending_updates=True,

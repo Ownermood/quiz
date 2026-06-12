@@ -183,11 +183,27 @@ class DatabaseManager:
 
     # ── Poll → Question mapping ───────────────────────────────────────────────
 
-    def save_poll_mapping(self, poll_id: str, quiz_id: int, chat_id: int = None):
+    def save_poll_mapping(self, poll_id: str, quiz_id: int, chat_id: int = None,
+                          poll_data: dict = None) -> None:
+        """Store poll mapping. poll_data dict fields: correct_option_id, chat_id,
+        thread_id, tracking_id, category, question_id, question (chat_title optional).
+        MongoDB is authoritative; all fields stored here are source of truth."""
         try:
-            data: dict = {"quiz_id": quiz_id}
+            data: dict = {
+                "quiz_id":    quiz_id,
+                "created_at": datetime.utcnow().isoformat(),
+            }
             if chat_id and isinstance(chat_id, int) and chat_id < 0:
-                data["chat_id"] = chat_id  # persist for startup group recovery
+                data["chat_id"] = chat_id
+            if poll_data:
+                for field in ("correct_option_id", "thread_id", "tracking_id",
+                              "category", "question_id", "question", "chat_title"):
+                    if field in poll_data and poll_data[field] is not None:
+                        data[field] = poll_data[field]
+                # chat_id from poll_data overrides positional arg if negative integer
+                pd_cid = poll_data.get("chat_id")
+                if pd_cid and isinstance(pd_cid, int) and pd_cid < 0:
+                    data["chat_id"] = pd_cid
             self.poll_map_col.update_one(
                 {"poll_id": poll_id},
                 {"$set": data},
@@ -202,6 +218,35 @@ class DatabaseManager:
             return doc["quiz_id"] if doc else None
         except Exception:
             return None
+
+    def get_active_poll_mappings(self, max_age_hours: int = 48) -> Dict[str, dict]:
+        """Load recent poll mappings from MongoDB for bot_data restoration.
+        Returns {f'poll_{poll_id}': bot_data_entry, ...}.
+        max_age_hours=48 covers auto-quiz polls that stay open until deleted."""
+        try:
+            cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
+            docs = list(self.poll_map_col.find(
+                {"created_at": {"$gte": cutoff}, "correct_option_id": {"$exists": True}},
+                {"_id": 0}
+            ))
+            result: Dict[str, dict] = {}
+            for doc in docs:
+                pid = doc.get("poll_id")
+                if not pid:
+                    continue
+                result[f"poll_{pid}"] = {
+                    "question_id":       doc.get("question_id"),
+                    "question":          doc.get("question", ""),
+                    "correct_option_id": doc.get("correct_option_id"),
+                    "chat_id":           doc.get("chat_id", 0),
+                    "thread_id":         doc.get("thread_id"),
+                    "tracking_id":       doc.get("tracking_id", doc.get("chat_id", 0)),
+                    "category":          doc.get("category", ""),
+                }
+            return result
+        except Exception as e:
+            logger.warning(f"get_active_poll_mappings error: {e}")
+            return {}
 
     # ── Users ─────────────────────────────────────────────────────────────────
 

@@ -110,10 +110,23 @@ class AutoQuizScheduler:
                 self._persist_poll_id(chat_id, msg.message_id)
                 if self.db and q_id:
                     try:
+                        poll_entry = {
+                            "chat_id":           chat_id,
+                            "correct_option_id": correct_idx,
+                            "category":          category,
+                            "question_id":       q_id,
+                            "thread_id":         None,
+                            "tracking_id":       chat_id,
+                        }
                         self.db.save_poll_mapping(
-                            str(msg.poll.id), q_id, chat_id=chat_id)
+                            str(msg.poll.id), q_id, poll_data=poll_entry)
                     except Exception:
                         pass
+                # Also update runtime bot_data for immediate poll answer handling
+                try:
+                    self.bot.application.bot_data[f"poll_{msg.poll.id}"] = poll_entry
+                except Exception:
+                    pass
                 logger.info(f"Auto quiz sent to {chat_id} — msg_id: {msg.message_id}")
 
             except Exception as e:
