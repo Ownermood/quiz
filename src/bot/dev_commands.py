@@ -328,7 +328,7 @@ class DeveloperCommands:
                 # Group - use group info from database
                 first_name = "User"
                 username = "User"
-                chat_title = group_data.get('chat_title') or "Group"
+                chat_title = group_data.get('title') or group_data.get('chat_title') or "Group"
             else:
                 # Fallback: fetch from API only if data not provided
                 try:
@@ -1817,9 +1817,9 @@ class DeveloperCommands:
                 await self.auto_clean_message(update.message, reply)
                 return
 
-            # Store broadcast ID in context for confirmation (prevents race condition with multiple broadcasts)
+            # Store integer broadcast ID in context for confirmation (prevents race condition with multiple broadcasts)
             if context.user_data is not None:
-                context.user_data['pending_delete_broadcast_id'] = broadcast_data['broadcast_id']
+                context.user_data['pending_delete_broadcast_id'] = broadcast_data.get('id')
             
             # Confirm deletion
             confirm_text = (
@@ -1938,8 +1938,8 @@ class DeveloperCommands:
             
             logger.info(f"Broadcast deletion by {update.effective_user.id}: {success_count} deleted, {fail_count} failed (ID: {broadcast_id})")
             
-            # Clear broadcast data from database
-            self.db.delete_broadcast(broadcast_id)
+            # Clear broadcast data from database (use int id)
+            self.db.delete_broadcast(pending_broadcast_id)
             
             # Clear the stored broadcast ID from context
             if context.user_data is not None:
@@ -2121,7 +2121,7 @@ class DeveloperCommands:
             perf_24h = self.db.get_performance_summary(24)
             activity_stats = self.db.get_activity_stats(1)
             
-            total_users = len(self.db.get_pm_accessible_users())
+            total_users = self.db.get_user_engagement_stats().get('total_users', 0)
             total_groups = len(self.db.get_all_groups())
             active_today = self.db.get_active_users_count(1)
             active_week = self.db.get_active_users_count(7)
@@ -2166,7 +2166,7 @@ class DeveloperCommands:
             
             most_active_text = ""
             for i, user in enumerate(most_active[:5], 1):
-                name = user.get('first_name') or user.get('username') or f"User{user['user_id']}"
+                name = user.get('name') or user.get('first_name') or user.get('username') or f"User{user['user_id']}"
                 most_active_text += f"{i}. {name}: {user.get('total_answers', 0)} answers\n"
             if not most_active_text:
                 most_active_text = "No active users yet"

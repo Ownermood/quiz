@@ -134,7 +134,7 @@ def run_polling_mode(config: Config):
             scheduler.start()
             await bot.application.updater.start_polling(
                 drop_pending_updates=True,
-                allowed_updates=["message", "poll_answer", "callback_query"],
+                allowed_updates=["message", "poll_answer", "callback_query", "my_chat_member"],
             )
             try:
                 await asyncio.Event().wait()

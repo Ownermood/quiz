@@ -2411,7 +2411,7 @@ class TelegramQuizBot:
         if not doc:
             return
 
-        mention = OWNER_LINK if self._is_owner(user.id) else UI.mention(user.id, UI.display_name(user))
+        mention = UI.mention(user.id, UI.display_name(user))
 
         fname  = doc.file_name or ""
         is_txt = (

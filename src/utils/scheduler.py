@@ -63,9 +63,13 @@ class AutoQuizScheduler:
         logger.info("AutoQuizScheduler stopped")
 
     async def _send_auto_quiz(self):
-        chats = list(self.quiz_manager.active_chats)
+        if self.db:
+            groups = self.db.get_all_groups()
+            chats = [g.get("chat_id") for g in groups if g.get("chat_id")]
+        else:
+            chats = list(self.quiz_manager.active_chats)
         if not chats:
-            logger.info("No active chats — skipping auto quiz")
+            logger.info("No active groups — skipping auto quiz")
             return
 
         for chat_id in chats:
