@@ -183,7 +183,8 @@ class TelegramQuizBot:
         self._nav_history: dict       = {}
         self._broadcast_sent: list    = []
         self._start_ts: float         = time.time()
-        self._seen_groups: set        = set()  # in-session cache to limit upsert rate
+        self._seen_groups: set        = set()   # perf cache: groups upserted this session
+        self._seen_users: dict        = {}      # perf cache: {user_id: epoch} for time-bound dedup
 
     def _q_count(self) -> int:
         """Live question count — DB first, in-memory fallback."""
@@ -449,11 +450,10 @@ class TelegramQuizBot:
         app.add_handler(MessageHandler(
             filters.StatusUpdate.MIGRATE, self._handle_group_migration))
 
-        # 3. Passive registration in handler group 1: runs alongside ALL group
-        #    message handlers in group 0, auto-registering any group not yet in DB.
-        #    This is the self-healing mechanism for groups that joined before tracking.
+        # 3. Auto-track in handler group 1: runs alongside ALL group message
+        #    handlers in group 0, auto-registering the group AND the sender.
         app.add_handler(
-            MessageHandler(filters.ChatType.GROUPS, self._passive_group_register),
+            MessageHandler(filters.ChatType.GROUPS, self._auto_track),
             group=1
         )
 
@@ -636,16 +636,10 @@ class TelegramQuizBot:
         if user and result:
             self._active_msg[user.id] = result
 
-        # Register user in DB
+        # Register user in DB (is_pm is known here from chat.type check above)
         if self.db:
             try:
-                self.db.upsert_user(user.id, {
-                    "user_id":       user.id,
-                    "username":      user.username or "",
-                    "name":          name,
-                    "last_seen":     datetime.utcnow().isoformat(),
-                    "pm_accessible": is_pm,
-                })
+                self.ensure_user_registered(user, is_pm=is_pm, source="cmd-start")
             except Exception as e:
                 logger.error(f"upsert_user: {e}")
 
@@ -731,6 +725,52 @@ class TelegramQuizBot:
                 f"ensure_group_registered {chat.id} ({source}): {e}"
             )
 
+    # ══════════════════════════════════════════════════════════════
+    #  USER TRACKING — SINGLE PIPELINE
+    #
+    #  ALL user observations funnel through ensure_user_registered().
+    #  _seen_users is a time-bounded PERFORMANCE CACHE ONLY (5-min TTL).
+    #  Database is the sole source of truth for all user counts.
+    # ══════════════════════════════════════════════════════════════
+
+    _USER_CACHE_TTL = 300  # seconds
+
+    def ensure_user_registered(
+        self,
+        user,
+        is_pm: bool = None,
+        source: str = "unknown",
+    ) -> None:
+        """Central user registration pipeline.
+
+        Upserts the user record in MongoDB with current metadata.
+        is_pm=True sets pm_accessible so broadcast can reach them.
+        is_pm=None leaves pm_accessible unchanged (already-set values persist).
+        """
+        if not self.db or not user:
+            return
+
+        now_ts = time.time()
+        cached = self._seen_users.get(user.id)
+        if cached and (now_ts - cached) < self._USER_CACHE_TTL:
+            return  # already upserted within TTL — skip redundant write
+
+        try:
+            data: dict = {
+                "user_id":   user.id,
+                "username":  user.username or "",
+                "name":      UI.display_name(user),
+                "last_seen": datetime.utcnow().isoformat(),
+                "active_status": "active",
+            }
+            if is_pm is not None:
+                data["pm_accessible"] = is_pm
+            self.db.upsert_user(user.id, data)
+            self._seen_users[user.id] = now_ts
+            logger.debug(f"[USER REGISTERED] id={user.id} source={source}")
+        except Exception as e:
+            logger.error(f"ensure_user_registered {user.id} ({source}): {e}")
+
     # ─── Bot membership change handler ───────────────────────
 
     async def handle_my_chat_member(
@@ -750,10 +790,28 @@ class TelegramQuizBot:
         if new_status in ("member", "administrator", "restricted"):
             # Bot present (active or restricted) — register / refresh metadata
             self.ensure_group_registered(update, context, source="my_chat_member")
+
+            # Track admin status changes
+            if self.db:
+                try:
+                    is_admin = (new_status == "administrator")
+                    perms = None
+                    if is_admin:
+                        cm = member.new_chat_member
+                        perms = {
+                            "can_delete_messages":  getattr(cm, "can_delete_messages",  False),
+                            "can_restrict_members": getattr(cm, "can_restrict_members", False),
+                            "can_pin_messages":     getattr(cm, "can_pin_messages",     False),
+                            "can_manage_chat":      getattr(cm, "can_manage_chat",      False),
+                        }
+                    self.db.update_group_admin_status(chat.id, is_admin, perms)
+                except Exception as e:
+                    logger.error(f"update_group_admin_status {chat.id}: {e}")
+
             action = {
-                "member":       "added",
+                "member":        "added",
                 "administrator": "promoted",
-                "restricted":   "restricted",
+                "restricted":    "restricted",
             }.get(new_status, new_status)
             if old_status in ("left", "kicked", "banned"):
                 logger.info(
@@ -817,12 +875,18 @@ class TelegramQuizBot:
             # Message from the NEW supergroup — ensure it is registered
             self.ensure_group_registered(update, context, source="migration-new-id")
 
-    async def _passive_group_register(
+    async def _auto_track(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
-        """Passive registration — handler group 1, fires for every group message.
-        Thin wrapper around ensure_group_registered; no logic here."""
+        """Handler group 1 — fires alongside every group message.
+        Registers both the group and the sending user in a single pass."""
         self.ensure_group_registered(update, context, source="passive-message")
+        user = update.effective_user
+        if user:
+            chat = update.effective_chat
+            is_pm = chat.type == "private" if chat else False
+            self.ensure_user_registered(user, is_pm=is_pm if is_pm else None,
+                                        source="passive-message")
 
     async def recover_groups_from_history(self) -> None:
         """Startup recovery: find every group chat_id in activity history that is
@@ -1161,6 +1225,8 @@ class TelegramQuizBot:
         self.ensure_group_registered(update, context, source="poll-answer")
 
         answer     = update.poll_answer
+        if answer.user:
+            self.ensure_user_registered(answer.user, source="poll-answer")
         user_id    = answer.user.id
         poll_id    = answer.poll_id
         option_ids = answer.option_ids
@@ -1609,6 +1675,7 @@ class TelegramQuizBot:
             u_new_w    = d.get("u_new_w", 0)
             u_new_m    = d.get("u_new_m", 0)
             g_total    = d.get("g_total", 0)
+            g_admin    = d.get("g_admin", 0)
             g_new_d    = d.get("g_new_d", 0)
             g_new_w    = d.get("g_new_w", 0)
             g_new_m    = d.get("g_new_m", 0)
@@ -1654,6 +1721,7 @@ class TelegramQuizBot:
                 f"💬  <b>𝐆𝐑𝐎𝐔𝐏𝐒</b>\n"
                 f"╭──────────────────────────────────────╮\n"
                 f"│  Total           ›  <b>{UI.fmt_num(g_total)}</b>\n"
+                f"│  Bot Is Admin    ›  <b>{g_admin}</b>\n"
                 f"│  New Today       ›  <b>+{g_new_d}</b>\n"
                 f"│  New This Week   ›  <b>+{g_new_w}</b>\n"
                 f"│  New This Month  ›  <b>+{g_new_m}</b>\n"
@@ -2745,10 +2813,16 @@ class TelegramQuizBot:
         query = update.callback_query
         await query.answer()
         data  = query.data
-        # Callback queries from groups bypass the group-1 MessageHandler,
-        # so we register here via the central pipeline.
+        # Callback queries bypass the group-1 MessageHandler; register both
+        # group and user here via the central pipelines.
         self.ensure_group_registered(update, context, source="callback-query")
-        uid   = update.effective_user.id if update.effective_user else None
+        cb_user = update.effective_user
+        if cb_user:
+            cb_chat = update.effective_chat
+            cb_pm   = cb_chat.type == "private" if cb_chat else False
+            self.ensure_user_registered(cb_user, is_pm=cb_pm if cb_pm else None,
+                                        source="callback-query")
+        uid   = cb_user.id if cb_user else None
 
         if data == "play_quiz":
             # Quiz sends a poll — do NOT edit the current message

@@ -210,6 +210,7 @@ class DatabaseManager:
                     "$set": data,
                     "$setOnInsert": {
                         "joined_at":          datetime.utcnow().isoformat(),
+                        "active_status":      "active",
                         "quizzes_attempted":  0,
                         "quizzes_completed":  0,
                         "total_questions":    0,
@@ -739,6 +740,7 @@ class DatabaseManager:
 
             # ── Groups ────────────────────────────────────────
             g_total = gcol.count_documents({})
+            g_admin = gcol.count_documents({"bot_is_admin": True})
             g_new_d = gcol.count_documents({"joined_at": {"$gte": d_cut}})
             g_new_w = gcol.count_documents({"joined_at": {"$gte": w_cut}})
             g_new_m = gcol.count_documents({"joined_at": {"$gte": m_cut}})
@@ -803,7 +805,7 @@ class DatabaseManager:
                 "u_new_d": u_new_d, "u_new_w": u_new_w, "u_new_m": u_new_m,
                 "engage_rate": engage_rate,
                 "top_user": top_user,
-                "g_total": g_total,
+                "g_total": g_total, "g_admin": g_admin,
                 "g_new_d": g_new_d, "g_new_w": g_new_w, "g_new_m": g_new_m,
                 "top_group": top_group,
                 "q_total": q_total, "q_cats": q_cats,
@@ -819,21 +821,36 @@ class DatabaseManager:
 
     def register_group_interaction(self, chat_id: int, thread_id=None,
                                     title: str = '', username: str = '') -> None:
-        """Register/update a group when bot receives a command there.
-        Stores message_thread_id so broadcast can respect forum topics."""
+        """Register/update a group. Called from every handler that observes a group.
+        Sets active_status=active on every upsert."""
+        now = datetime.utcnow().isoformat()
         data = {
-            "chat_id":   chat_id,
-            "title":     title,
-            "username":  username,
-            "last_active": datetime.utcnow().isoformat(),
+            "chat_id":       chat_id,
+            "title":         title,
+            "username":      username,
+            "last_active":   now,
+            "last_seen":     now,
+            "active_status": "active",
         }
         if thread_id:
             data["message_thread_id"] = thread_id
         self.groups_col.update_one(
             {"chat_id": chat_id},
-            {"$set": data, "$setOnInsert": {"joined_at": datetime.utcnow().isoformat()}},
+            {"$set": data, "$setOnInsert": {"joined_at": now}},
             upsert=True
         )
+
+    def update_group_admin_status(
+        self, chat_id: int, is_admin: bool, permissions: dict = None
+    ) -> None:
+        """Store bot's admin status and permissions for a group."""
+        data: dict = {
+            "bot_is_admin":           is_admin,
+            "last_permission_check":  datetime.utcnow().isoformat(),
+        }
+        if permissions is not None:
+            data["bot_permissions"] = permissions
+        self.groups_col.update_one({"chat_id": chat_id}, {"$set": data})
     def format_relative_time(self, timestamp_str: str) -> str:
         try:
             ts = datetime.fromisoformat(timestamp_str)
